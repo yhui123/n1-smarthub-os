@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>N1 代理监控面板</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --card2:#f8fafc; --line:#e3e8ee; --txt:#1f2733; --sub:#6b7686;
+    --accent:#2f6fed; --accent2:#12a05c; --warn:#e0860a; --danger:#d64545;
+    --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --card:#1b2129; --card2:#222a34; --line:#2b333d; --txt:#e6ebf2; --sub:#95a1b2;
+      --accent:#5b95ff; --accent2:#3ecf8e; --warn:#f0a83c; --danger:#f07070;
+      --shadow:0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.5}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px 14px 44px}
+
+  /* 顶部栏：一行紧凑排布 */
+  header{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:nowrap}
+  h1{font-size:17px;font-weight:600;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);display:inline-block;flex:0 0 auto;
+    box-shadow:0 0 0 3px color-mix(in srgb,var(--accent2) 22%,transparent)}
+  .ts{color:var(--sub);font-size:12px;white-space:nowrap;margin-left:2px}
+  .spacer{flex:1}
+  .btn{background:var(--card);border:1px solid var(--line);color:var(--txt);
+    padding:5px 11px;border-radius:8px;cursor:pointer;font-size:12px;font-family:inherit;white-space:nowrap}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+  .btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+
+  /* 顶部分段标签栏（左右对称两列） */
+  .tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:var(--card);
+    border:1px solid var(--line);padding:4px;border-radius:10px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .tab{background:transparent;border:none;color:var(--sub);
+    padding:7px 8px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;
+    transition:.15s;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tab:hover{color:var(--txt)}
+  .tab.on{background:var(--accent);color:#fff;box-shadow:0 1px 4px rgba(0,0,0,.18)}
+
+  /* 统计卡片 */
+  .stats{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
+  @media (max-width: 1024px) and (min-width: 681px){
+    .stats{grid-template-columns:repeat(3,1fr)}
+  }
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:11px;padding:12px 14px;box-shadow:var(--shadow)}
+  .stat .k{color:var(--sub);font-size:11px;margin-bottom:2px;white-space:nowrap}
+  .stat .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .stat .u{font-size:11px;color:var(--sub);margin-left:2px;font-weight:400}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;box-shadow:var(--shadow);margin-bottom:12px}
+  .card h2{font-size:14px;font-weight:600;margin:0 0 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .card h2 .badge{font-size:11px;font-weight:500;background:var(--card2);border:1px solid var(--line);
+    color:var(--sub);padding:1px 8px;border-radius:20px;margin-left:auto}
+
+  /* 节点选择网格 */
+  .node-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+  .node-btn{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:8px 10px;border-radius:8px;cursor:pointer;text-align:left;font-family:inherit;transition:.15s;
+    display:flex;flex-direction:column;gap:2px}
+  .node-btn:hover{border-color:var(--accent)}
+  .node-btn .t{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .node-btn .s{font-size:10px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .node-btn.on{background:color-mix(in srgb,var(--accent) 14%,var(--card));border-color:var(--accent)}
+  .node-btn.on .t{color:var(--accent)}
+
+  /* CF 优选订阅栏 */
+  .cf-sub-box{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);
+    display:grid;grid-template-columns:1fr auto auto auto;gap:7px;align-items:center}
+  .cf-sub-box select{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    padding:6px 8px;border-radius:8px;font-size:12px;font-family:inherit;width:100%;min-width:0}
+
+  details.tip-box{margin-top:9px;font-size:12px;color:var(--sub);background:var(--card2);
+    border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  details.tip-box summary{cursor:pointer;font-weight:500;color:var(--sub);outline:none;user-select:none}
+  details.tip-box .tip-body{margin-top:6px;line-height:1.6;font-size:11px;border-top:1px solid var(--line);padding-top:6px}
+
+  /* 桌面表格 */
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--sub);font-weight:500;font-size:12px;
+    padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th.r,td.r{text-align:right;font-variant-numeric:tabular-nums}
+  td{padding:9px 8px;border-bottom:1px solid var(--line)}
+  tr:last-child td{border-bottom:none}
+  .nm{font-weight:600;font-size:13px}
+  .ip{color:var(--sub);font-size:11px;font-family:ui-monospace,Consolas,monospace}
+  .mac{color:var(--sub);font-size:11px;font-family:ui-monospace,Consolas,monospace}
+
+  /* 移动端设备卡片列表（默认隐藏，手机端显示） */
+  .m-list{display:none}
+  .m-item{padding:10px 0;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:7px}
+  .m-item:last-child{border-bottom:none;padding-bottom:2px}
+  .m-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .m-title{display:flex;flex-wrap:wrap;align-items:center;gap:5px;min-width:0}
+  .m-meta{font-size:11px;color:var(--sub);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  .m-ctl{display:flex;gap:5px;align-items:center}
+  .m-ctl select{flex:1;min-width:0;padding:4px 7px !important;font-size:12px !important;height:28px}
+  .m-ctl button{height:28px;padding:0 9px !important;font-size:11px !important}
+
+  .bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:6px;display:flex}
+  .bar i{display:block;height:100%}
+  .bar .up{background:var(--warn)}
+  .bar .dn{background:var(--accent)}
+  .lg{display:flex;gap:14px;font-size:11px;color:var(--sub);margin-top:4px;align-items:center}
+
+  .hosts{display:flex;flex-wrap:wrap;gap:5px;margin-top:4px}
+  .host{background:var(--card2);border:1px solid var(--line);border-radius:6px;
+    padding:2px 8px;font-size:11px;display:inline-flex;gap:5px;align-items:center;max-width:100%}
+  .host b{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .host i{color:var(--sub);font-style:normal;font-size:10px;
+    background:var(--card);border-radius:8px;padding:0 5px;flex:0 0 auto}
+
+  .tag{font-size:11px;padding:1px 6px;border-radius:6px;font-weight:500;white-space:nowrap;display:inline-block}
+  .t-proxy{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent)}
+  .t-direct{background:color-mix(in srgb,var(--accent2) 15%,transparent);color:var(--accent2)}
+  .t-type{background:var(--card2);border:1px solid var(--line);color:var(--sub);font-weight:400}
+  .t-none{color:var(--sub);font-size:12px}
+  .t-blocked{background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)}
+  .t-limited{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+
+  .ctl{display:flex;gap:5px;justify-content:flex-end;align-items:center;flex-wrap:nowrap}
+  .mini{background:var(--card2);border:1px solid var(--line);color:var(--txt);
+    font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer;font-family:inherit;
+    white-space:nowrap;line-height:1.5}
+  .mini:hover{border-color:var(--accent);color:var(--accent)}
+  .mini.danger{color:var(--danger)}
+  .mini.danger:hover{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 10%,transparent)}
+  .mini.warn:hover{border-color:var(--warn);color:var(--warn)}
+
+  .toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(80px);
+    background:var(--txt);color:var(--card);padding:9px 16px;border-radius:9px;font-size:12px;
+    box-shadow:0 8px 24px rgba(0,0,0,.25);opacity:0;transition:all .25s;z-index:99;max-width:90vw;text-align:center}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.err{background:var(--danger);color:#fff}
+
+  dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--txt);
+    padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.3);max-width:360px;width:90vw;font-family:inherit}
+  dialog::backdrop{background:rgba(0,0,0,.45)}
+  dialog h3{margin:0 0 6px;font-size:15px}
+  dialog p{margin:0 0 12px;color:var(--sub);font-size:12px;line-height:1.6}
+  dialog label{display:block;font-size:12px;color:var(--sub);margin:10px 0 5px}
+  dialog input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;
+    background:var(--bg);color:var(--txt);font-size:13px;font-family:inherit}
+  dialog input:focus{outline:none;border-color:var(--accent)}
+  dialog .acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+  .presets{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  .presets span{font-size:11px;border:1px solid var(--line);border-radius:6px;padding:2px 8px;
+    cursor:pointer;color:var(--sub)}
+
+  .flow{max-height:280px;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  .fl{display:flex;gap:6px;padding:4px 0;border-bottom:1px solid var(--line);align-items:center}
+  .fl:last-child{border-bottom:none}
+  .fl .h{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dev-h{display:flex;align-items:center;gap:6px;margin:12px 0 6px;flex-wrap:wrap}
+  .dev-h:first-child{margin-top:2px}
+  .dev-h .n{font-weight:600;font-size:13px}
+  .dev-h .m{color:var(--sub);font-size:11px;font-family:ui-monospace,monospace}
+  .empty{color:var(--sub);font-size:12px;padding:12px 0;text-align:center}
+
+  /* ---------- 手机端深度适配 (<= 680px) ---------- */
+  @media (max-width: 680px){
+    .wrap{padding:10px 8px 36px}
+    h1{font-size:15px}
+    .btn{padding:4px 9px;font-size:11px}
+    .tab{font-size:12px;padding:6px 4px}
+    .stats{grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:10px}
+    .stat{padding:9px 11px;border-radius:9px}
+    .stat .v{font-size:17px}
+    .grid{grid-template-columns:1fr;gap:0}
+    .card{padding:11px 12px;border-radius:10px;margin-bottom:10px}
+    .card h2{font-size:13px;margin-bottom:8px}
+    .node-grid{grid-template-columns:repeat(2,1fr);gap:6px}
+    .node-btn{padding:7px 8px}
+    .cf-sub-box{grid-template-columns:1fr 92px;gap:6px}
+    .cf-sub-box .cf-btn-save{grid-column:1 / 2}
+    .cf-sub-box .cf-btn-test{grid-column:2 / 3}
+    /* 手机端隐藏宽表格，启用原生卡片列表（零横向滚动条） */
+    .tblwrap{display:none}
+    .m-list{display:block}
+  }
+
+  /* Cloudflare 核心配置折叠卡片 */
+  .cf-acc{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;background:var(--card2);overflow:hidden}
+  .cf-acc summary{padding:10px 12px;cursor:pointer;font-weight:600;font-size:13px;color:var(--txt);user-select:none;background:var(--card);outline:none;border-bottom:1px solid var(--line);list-style:none;display:flex;align-items:center;justify-content:space-between}
+  .cf-acc:not([open]) summary{border-bottom:none}
+  .cf-acc summary::-webkit-details-marker{display:none}
+  .cf-acc summary::after{content:'▼';font-size:10px;color:var(--sub);transition:.2s}
+  .cf-acc[open] summary::after{transform:rotate(180deg)}
+  .cf-acc-body{padding:12px 14px}
+  .cf-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+  @media(max-width:680px){.cf-form-grid{grid-template-columns:1fr !important}}
+  .cf-fg{display:flex;flex-direction:column;gap:4px;min-width:0}
+  .cf-fg.full{grid-column:1 / -1}
+  .cf-fg label{font-size:11px;font-weight:600;color:var(--sub)}
+  .cf-fg input, .cf-fg select{background:var(--card);border:1px solid var(--line);color:var(--txt);padding:7px 9px;border-radius:7px;font-size:12px;font-family:inherit;width:100%;box-sizing:border-box}
+  .cf-checks{display:flex;flex-wrap:wrap;gap:10px 16px;padding:6px 0}
+  .cf-ck{display:inline-flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;user-select:none;color:var(--txt)}
+  .pill-btn{font-size:11px;padding:3px 9px;background:var(--card);border:1px solid var(--line);border-radius:12px;cursor:pointer;color:var(--sub);transition:.15s;user-select:none}
+  .pill-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent2);margin-left:4px;vertical-align:middle;animation:pulse-dot 1.4s infinite}
+  @keyframes pulse-dot{0%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}100%{opacity:.3;transform:scale(.8)}}
+  .spd-tag{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .spd-dn{color:var(--accent2)}
+  .spd-up{color:var(--warn)}
+  .lat-badge{font-size:10px;color:var(--sub);font-family:ui-monospace,monospace}
+
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>N1 代理监控</h1>
+    <span class="ts" id="ts">加载中…</span>
+    <span class="spacer"></span>
+    <button class="btn on" id="toggle">自动</button>
+    <button class="btn" onclick="load(true)">刷新</button>
+  </header>
+
+  <div class="tabs">
+    <button class="tab on" id="tabBtnMonitor" onclick="switchTab('monitor')">📊 流量与分设备节点</button>
+    <button class="tab" id="tabBtnHealth" onclick="switchTab('health')">🩺 内核健康与配置</button>
+  </div>
+
+  <div id="viewMonitor">
+    <div class="stats" id="stats"></div>
+
+    <div class="card" id="nodeCard">
+      <h2>🌐 全局默认出口与优选设置 <span class="badge" id="cfBestBadge">加载中…</span></h2>
+      <div class="node-grid" id="globalNodeBar"></div>
+
+      <div class="cf-sub-box">
+        <select id="cfSubModeSel" title="优选订阅模式">
+          <option value="generator">🔥 大佬优选生成器 (抄作业·推荐)</option>
+          <option value="random">🎲 随机官方优选 (按网络自动下发)</option>
+          <option value="custom">📌 自定义订阅 (固定优选池)</option>
+        </select>
+        <select id="cfSubPortSel" title="指定优选端口">
+          <option value="-1">随机端口</option>
+          <option value="443">443 端口</option>
+          <option value="2053">2053 端口</option>
+          <option value="2083">2083 端口</option>
+          <option value="2087">2087 端口</option>
+          <option value="2096">2096 端口</option>
+          <option value="8443">8443 端口</option>
+        </select>
+        <button class="btn on cf-btn-save" onclick="saveCfSub()">💾 保存并优选</button>
+        <button class="btn cf-btn-test" onclick="ctl('cf_update',{})">🔄 重测</button>
+      </div>
+
+      <details class="tip-box">
+        <summary>💡 节点与 IP 归属说明（点击展开）</summary>
+        <div class="tip-body">
+          • <b>🇺🇸 美国专线 · Hy2 / Reality</b>：您的美国加州独享服务器（<code>43.173.124.48</code>），<b>所有网站 100% 纯正美国原生 IP</b>。<br>
+          • <b>☁️ CF 美国/日本/新加坡/香港</b>：Cloudflare 免费节点，访问 CF 网站（ChatGPT/Claude/ipwho.is）走对应国家 IP；访问非 CF 网站（Google/ipinfo.io）由就近亚太机房（新加坡）直连发出。
+        </div>
+      </details>
+    </div>
+
+
+    <div class="card" id="cfConfigCard">
+      <h2>⚙️ Cloudflare 节点深度配置 <span class="badge" id="cfCfgStatusBadge">云端就绪</span></h2>
+      <p style="font-size:12px;color:var(--sub);margin:0 0 12px">
+        已直接打通 <a href="https://1012.us.ci/admin" id="cfAdminLink" target="_blank" style="color:var(--accent);text-decoration:none">1012.us.ci/admin</a> 后台，在盒子修改保存后将同步至 Cloudflare KV 并即时刷新 N1 节点配置。
+      </p>
+
+      <!-- 模块1: 详细配置信息 -->
+      <details class="cf-acc">
+        <summary>⚙️ 详细配置信息（协议、域名与伪装）</summary>
+        <div class="cf-acc-body">
+          <div class="cf-form-grid">
+            <div class="cf-fg">
+              <label>订阅名称</label>
+              <input type="text" id="cf_subName" placeholder="edgetunnel">
+            </div>
+            <div class="cf-fg">
+              <label>HOST (节点域名)</label>
+              <input type="text" id="cf_host" placeholder="1012.us.ci">
+            </div>
+            <div class="cf-fg full">
+              <label>UUID (节点密钥)</label>
+              <input type="text" id="cf_uuid" placeholder="0089a5dc-3f7f-417f-821f-7d3399da41cc" style="font-family:ui-monospace,monospace">
+            </div>
+            <div class="cf-fg">
+              <label>PATH (伪装路径)</label>
+              <input type="text" id="cf_path" placeholder="/">
+            </div>
+            <div class="cf-fg">
+              <label>节点协议</label>
+              <select id="cf_protocol">
+                <option value="vless">VLESS (推荐)</option>
+                <option value="vmess">VMess</option>
+                <option value="trojan">Trojan</option>
+                <option value="shadowsocks">Shadowsocks</option>
+              </select>
+            </div>
+            <div class="cf-fg">
+              <label>传输协议</label>
+              <select id="cf_network">
+                <option value="ws">WebSocket 速度快！(适合大多数场景)</option>
+                <option value="grpc">gRPC 延迟低！</option>
+              </select>
+            </div>
+            <div class="cf-fg">
+              <label>指纹伪装</label>
+              <select id="cf_fingerprint">
+                <option value="chrome">chrome（支持ECH）</option>
+                <option value="firefox">firefox</option>
+                <option value="safari">safari</option>
+                <option value="ios">ios</option>
+                <option value="edge">edge</option>
+                <option value="random">随机伪装</option>
+              </select>
+            </div>
+            <div class="cf-fg full">
+              <label>ALPN 协商</label>
+              <select id="cf_alpn">
+                <option value="">客户端自动协商 (默认)</option>
+                <option value="h2,http/1.1">h2,http/1.1</option>
+                <option value="h2">h2</option>
+                <option value="http/1.1">http/1.1</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="cf-checks">
+            <label class="cf-ck"><input type="checkbox" id="cf_skipVerify"> 跳过证书验证</label>
+            <label class="cf-ck"><input type="checkbox" id="cf_randomPath"> 随机伪装路径</label>
+            <label class="cf-ck"><input type="checkbox" id="cf_earlyData"> 启用 0-RTT (ed=2560)</label>
+            <label class="cf-ck"><input type="checkbox" id="cf_fragSR"> 启用分片 (Shadowrocket)</label>
+            <label class="cf-ck"><input type="checkbox" id="cf_fragHapp"> 启用分片 (Happ)</label>
+          </div>
+        </div>
+      </details>
+
+      <!-- 模块2: Encrypted Client Hello (ECH) -->
+      <details class="cf-acc">
+        <summary>🔐 Encrypted Client Hello (ECH 防封锁)</summary>
+        <div class="cf-acc-body">
+          <div class="cf-checks" style="margin-bottom:10px">
+            <label class="cf-ck" style="font-weight:600"><input type="checkbox" id="cf_enableECH"> 启用 ECH 加密（防止 SNI 阻断及 -1 探测拦截）</label>
+          </div>
+          <div class="cf-form-grid">
+            <div class="cf-fg full">
+              <label>EchConfig DNS 服务 (DoH)</label>
+              <div style="display:flex;gap:6px">
+                <input type="text" id="cf_echDns" placeholder="https://dns.alidns.com/dns-query" style="flex:1">
+                <button type="button" class="btn" onclick="setEchDns('https://dns.alidns.com/dns-query')">阿里DoH</button>
+                <button type="button" class="btn" onclick="setEchDns('https://doh.pub/dns-query')">DNSPod</button>
+                <button type="button" class="btn" onclick="setEchDns('https://cloudflare-dns.com/dns-query')">CF DoH</button>
+              </div>
+            </div>
+            <div class="cf-fg full">
+              <label>EchConfig 解析域名</label>
+              <div style="display:flex;gap:6px">
+                <input type="text" id="cf_echSni" placeholder="cloudflare-ech.com" style="flex:1">
+                <button type="button" class="btn" onclick="setEchSni('cloudflare-ech.com')">官方默认</button>
+              </div>
+            </div>
+          </div>
+          <div class="tip-box" style="margin-top:8px">
+            💡 <b>什么是 ECH？</b> Encrypted Client Hello 可加密 TLS 握手特征，隐藏访问的域名信息。开启后客户端需支持 ECH（如 v2rayN v7.17+ / Clash.Meta / Singbox）。
+          </div>
+        </div>
+      </details>
+
+      <!-- 模块3: Cloudflare CDN 访问设置 (反代与 PROXYIP) -->
+      <details class="cf-acc">
+        <summary>🌐 Cloudflare CDN 反代设置 (PROXYIP 落地出口)</summary>
+        <div class="cf-acc-body">
+          <div class="cf-form-grid">
+            <div class="cf-fg">
+              <label>反代模式</label>
+              <select id="cf_proxyMode">
+                <option value="auto">PROXYIP (推荐)</option>
+                <option value="other">其他代理协议</option>
+              </select>
+            </div>
+            <div class="cf-fg">
+              <label>自动获取 PROXYIP</label>
+              <label class="cf-ck" style="margin-top:6px"><input type="checkbox" id="cf_autoProxy" onchange="toggleAutoProxy()"> 启用自动获取 (auto)</label>
+            </div>
+            <div class="cf-fg full">
+              <label>PROXYIP 落地地址</label>
+              <input type="text" id="cf_proxyIP" placeholder="ProxyIP.US.CMLiussss.Net">
+              <div class="pills" style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+                <span class="pill-btn" onclick="setProxyIP('ProxyIP.US.CMLiussss.Net')">🇺🇸 美区 PROXYIP</span>
+                <span class="pill-btn" onclick="setProxyIP('ProxyIP.JP.CMLiussss.Net')">🇯🇵 日区 PROXYIP</span>
+                <span class="pill-btn" onclick="setProxyIP('ProxyIP.SG.CMLiussss.Net')">🇸🇬 新区 PROXYIP</span>
+                <span class="pill-btn" onclick="setProxyIP('ProxyIP.HK.CMLiussss.Net')">🇭🇰 港区 PROXYIP</span>
+              </div>
+            </div>
+          </div>
+          <div class="tip-box" style="margin-top:8px">
+            💡 <b>为什么需要 PROXYIP？</b> 访问非 Cloudflare 托管网站（如 Google / OpenAI / YouTube）时，Cloudflare Pages 会经由 PROXYIP 代为回源发起请求，因此落地 IP 显示为该 PROXYIP 所在地区。
+          </div>
+        </div>
+      </details>
+
+      <!-- 底部控制按钮 -->
+      <div style="display:flex;gap:8px;margin-top:14px;align-items:center;flex-wrap:wrap">
+        <button class="btn on" id="btnSaveCfConfig" onclick="saveCfFullConfig()" style="padding:8px 16px;font-size:13px;font-weight:600">💾 保存并同步到 Cloudflare &amp; N1</button>
+        <button class="btn" id="btnReloadCfConfig" onclick="loadCfFullConfig(true)" style="padding:8px 14px">🔄 重新从云端拉取</button>
+        <span id="cfSaveNotice" style="font-size:12px;color:var(--sub);margin-left:auto"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>设备代理用量 <span class="badge" id="devBadge">—</span></h2>
+      <div class="tblwrap">
+        <table>
+          <thead><tr>
+            <th>设备</th><th>类型</th><th class="r">并发</th><th class="r">实时网速</th><th class="r">累计上行</th><th class="r">累计下行</th><th>占比</th><th class="r">分设备节点 &amp; 管控</th>
+          </tr></thead>
+          <tbody id="devBody"><tr><td colspan="8" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="m-list" id="devMobile"><div class="empty">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>局域网在线设备 <span class="badge" id="lanBadge">—</span></h2>
+      <div class="tblwrap">
+        <table>
+          <thead><tr>
+            <th>设备</th><th>MAC</th><th>厂商</th><th>类型</th><th class="r">实时网速</th><th class="r">状态 / 延迟</th><th class="r">分设备节点 &amp; 管控</th>
+          </tr></thead>
+          <tbody id="lanBody"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="m-list" id="lanMobile"><div class="empty">加载中…</div></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>访问了哪些网站 <span class="badge" id="siteBadge">走代理</span></h2>
+        <div id="targets"><div class="empty">加载中…</div></div>
+      </div>
+      <div class="card">
+        <h2>代理 / 直连分布 <span class="badge" id="sumBadge">请求数</span></h2>
+        <div id="summary"><div class="empty">加载中…</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>实时访问流水 <span class="badge">最近 40 条</span></h2>
+      <div class="flow" id="flow"><div class="empty">加载中…</div></div>
+    </div>
+  </div><!-- /#viewMonitor -->
+
+  <div id="viewHealth" style="display:none">
+    <iframe id="healthFrame" scrolling="no" style="width:100%;min-height:1450px;border:none;background:transparent;display:block" title="N1 代理健康面板"></iframe>
+  </div>
+</div>
+
+<!-- 命名对话框 -->
+<dialog id="dlgName">
+  <h3>重命名设备</h3>
+  <p id="dlgNameIp" style="font-family:ui-monospace,monospace"></p>
+  <label for="dlgNameInput">设备名称（留空则清除）</label>
+  <input id="dlgNameInput" maxlength="30" placeholder="例如：客厅小米笔记本">
+  <div class="acts">
+    <button class="btn" onclick="document.getElementById('dlgName').close()">取消</button>
+    <button class="btn on" id="dlgNameOk">保存</button>
+  </div>
+</dialog>
+
+<!-- 限速对话框 -->
+<dialog id="dlgLimit">
+  <h3>限制代理速度</h3>
+  <p id="dlgLimitIp" style="font-family:ui-monospace,monospace"></p>
+  <p>限制该设备经 N1 代理时每秒可新建的连接数。数值越小越慢，0 表示不限速。</p>
+  <label for="dlgLimitInput">每秒新建连接数上限</label>
+  <input id="dlgLimitInput" type="number" min="0" max="10000" value="200">
+  <div class="presets">
+    <span data-v="50">50 / 很慢</span>
+    <span data-v="100">100 / 较慢</span>
+    <span data-v="200">200 / 适中</span>
+    <span data-v="500">500 / 较快</span>
+    <span data-v="0">0 / 取消限速</span>
+  </div>
+  <div class="acts">
+    <button class="btn" onclick="document.getElementById('dlgLimit').close()">取消</button>
+    <button class="btn on" id="dlgLimitOk">应用</button>
+  </div>
+</dialog>
+
+<!-- 禁用确认 -->
+<dialog id="dlgBlock">
+  <h3>确认禁用该设备的代理？</h3>
+  <p id="dlgBlockIp" style="font-family:ui-monospace,monospace"></p>
+  <p>禁用后，该设备<b>无法再通过 N1 访问外网</b>。国内网站及局域网不受影响。</p>
+  <div class="acts">
+    <button class="btn" onclick="document.getElementById('dlgBlock').close()">取消</button>
+    <button class="btn on" id="dlgBlockOk" style="background:var(--danger);border-color:var(--danger)">确认禁用</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/cgi-bin/proxy-panel';
+const CTL = '/cgi-bin/proxy-ctl';
+const PTOKEN = (function(){
+  try{
+    var t = new URLSearchParams(location.search).get('token');
+    if(t){ localStorage.setItem('n1-panel-token', t); return t; }
+    return localStorage.getItem('n1-panel-token') || 'd1d20aec7451ab4ebbfb1e6dfe11f22b';
+  }catch(e){ return ''; }
+})();
+const AUTH_QS = 'token=' + encodeURIComponent(PTOKEN);
+let timer = null, auto = true;
+let ctlState = { names: {}, blocked: [], limits: {}, nodes: {}, default_node: 'hysteria', cf_best: '', cf_mode: 'generator', cf_port: '-1', nft_rules: 0 };
+
+const NODE_OPTIONS = [
+  { id: 'hysteria', title: '🇺🇸 美专线 · Hy2',     desc: '全站美IP·极速UDP', label: '🇺🇸 美专线·Hy2 (全站美IP)',     short: '🇺🇸美·Hy2' },
+  { id: 'reality',  title: '🇺🇸 美专线 · Reality', desc: '全站美IP·稳定TCP', label: '🇺🇸 美专线·Reality (全站美IP)', short: '🇺🇸美·Reality' },
+  { id: 'cf-us',    title: '☁️ CF 美国',           desc: '免费·CF站美IP',    label: '☁️ CF美国 (免费优选)',         short: '☁️CF美' },
+  { id: 'cf-jp',    title: '☁️ CF 日本',           desc: '免费·CF站日IP',    label: '☁️ CF日本 (免费优选)',         short: '☁️CF日' },
+  { id: 'cf-sg',    title: '☁️ CF 新加坡',         desc: '免费·全站新IP',    label: '☁️ CF新加坡 (免费优选)',       short: '☁️CF新' },
+  { id: 'cf-hk',    title: '☁️ CF 香港',           desc: '免费·CF站港IP',    label: '☁️ CF香港 (免费优选)',         short: '☁️CF港' },
+  { id: 'direct',   title: '🏠 仅国内直连',        desc: '不走海外代理',     label: '🏠 仅国内直连',               short: '🏠直连' }
+];
+function nodeShort(id){
+  const m = NODE_OPTIONS.find(o => o.id === id);
+  return m ? m.short : id;
+}
+
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'n1-health-height' && e.data.height > 200) {
+    document.getElementById('healthFrame').style.height = (e.data.height + 24) + 'px';
+  }
+});
+
+function switchTab(tab){
+  const isMon = tab === 'monitor';
+  document.getElementById('viewMonitor').style.display = isMon ? '' : 'none';
+  document.getElementById('viewHealth').style.display = isMon ? 'none' : '';
+  document.getElementById('tabBtnMonitor').classList.toggle('on', isMon);
+  document.getElementById('tabBtnHealth').classList.toggle('on', !isMon);
+  if (!isMon) {
+    let themeParam = 'light';
+    try {
+      const parentBg = window.getComputedStyle(document.body).backgroundColor;
+      const m = parentBg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        const brightness = (parseInt(m[1])*299 + parseInt(m[2])*587 + parseInt(m[3])*114)/1000;
+        themeParam = brightness < 128 ? 'dark' : 'light';
+      }
+    } catch(e) {
+      const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      themeParam = isDark ? 'dark' : 'light';
+    }
+    const f = document.getElementById('healthFrame');
+    if (!f.getAttribute('src')) {
+      f.setAttribute('src', '/proxy-health.html?embed=1&theme=' + themeParam + '&' + AUTH_QS);
+    } else {
+      try {
+        f.contentWindow.postMessage({type:'n1-theme', theme: themeParam}, '*');
+        if (f.contentWindow.applyTheme) f.contentWindow.applyTheme(themeParam, false);
+        f.contentWindow.refresh();
+        f.contentWindow.renderCtl();
+      } catch(e) {}
+    }
+  } else {
+    load();
+  }
+}
+
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    const f = document.getElementById('healthFrame');
+    if (f && f.contentWindow) {
+      try { f.contentWindow.postMessage({type:'n1-theme', theme: e.matches ? 'dark' : 'light'}, '*'); } catch(_) {}
+    }
+  });
+}
+
+function toast(msg, isErr){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.className = 'toast'; }, 3200);
+}
+
+async function loadCtl(){
+  try{
+    const r = await fetch(CTL + '?action=state&t=' + Date.now() + '&' + AUTH_QS, {cache:'no-store'});
+    const d = await r.json();
+    if (d && !d.error) ctlState = Object.assign({ names: {}, blocked: [], limits: {}, nodes: {}, default_node: 'hysteria', cf_best: '', cf_mode: 'generator', cf_port: '-1' }, d);
+  }catch(e){}
+}
+
+async function ctl(action, params){
+  const q = new URLSearchParams(Object.assign({action}, params));
+  if (action === 'cf_update') toast('正在并发测速候选 Cloudflare 优选 IP，请稍候 3~5 秒…');
+  if (action === 'cf_sub') toast('正在同步优选订阅模式并并发测速，请稍候 4~6 秒…');
+  try{
+    const r = await fetch(CTL + '?' + q.toString() + '&t=' + Date.now() + '&' + AUTH_QS, {cache:'no-store'});
+    const d = await r.json();
+    toast(d.msg || (d.ok ? '操作成功' : '操作失败'), !d.ok);
+    await loadCtl();
+    await load();
+  }catch(e){
+    toast('操作失败：' + e.message, true);
+  }
+}
+
+function saveCfSub(){
+  const m = document.getElementById('cfSubModeSel').value || 'generator';
+  const p = document.getElementById('cfSubPortSel').value || '-1';
+  ctl('cf_sub', { cf_mode: m, cf_port: p });
+}
+
+function renderNodeBar(){
+  const def = ctlState.default_node || 'hysteria';
+  const cfBadge = document.getElementById('cfBestBadge');
+  const modeMap = { generator: '大佬优选', random: '随机优选', custom: '自定义优选' };
+  const mTxt = modeMap[ctlState.cf_mode || 'generator'] || '大佬优选';
+  if (cfBadge) cfBadge.textContent = mTxt + ' · ' + (ctlState.cf_best || '自动优选');
+  const mSel = document.getElementById('cfSubModeSel');
+  if (mSel && document.activeElement !== mSel && ctlState.cf_mode) mSel.value = ctlState.cf_mode;
+  const pSel = document.getElementById('cfSubPortSel');
+  if (pSel && document.activeElement !== pSel && ctlState.cf_port) pSel.value = String(ctlState.cf_port);
+  const bar = document.getElementById('globalNodeBar');
+  if (!bar) return;
+  bar.innerHTML = NODE_OPTIONS.filter(o => o.id !== 'direct').map(o => {
+    const active = o.id === def;
+    return `<button class="node-btn ${active ? 'on' : ''}" onclick="ctl('node',{ip:'default',node:'${o.id}'})">
+      <span class="t">${o.title}${active ? ' ✓' : ''}</span>
+      <span class="s">${o.desc}</span>
+    </button>`;
+  }).join('');
+}
+
+function actRename(ip){
+  const d = document.getElementById('dlgName');
+  document.getElementById('dlgNameIp').textContent = ip + '　当前名称：' + (ctlState.names[ip] || '未知设备');
+  const inp = document.getElementById('dlgNameInput');
+  inp.value = (ctlState.names[ip] && ctlState.names[ip] !== '未知设备') ? ctlState.names[ip] : '';
+  d.showModal();
+  setTimeout(() => inp.select(), 50);
+}
+function actLimit(ip){
+  const d = document.getElementById('dlgLimit');
+  document.getElementById('dlgLimitIp').textContent = ip + '　' + ((ctlState.names[ip]) || '未知设备');
+  document.getElementById('dlgLimitInput').value = ctlState.limits[ip] || 200;
+  d.showModal();
+}
+function actBlock(ip){
+  const d = document.getElementById('dlgBlock');
+  document.getElementById('dlgBlockIp').textContent = ip + '　' + ((ctlState.names[ip]) || '未知设备');
+  d.showModal();
+}
+
+function controlCell(x, isMobile){
+  const ip = x.ip;
+  if (!ip || ip === '-' || ip.endsWith('.1')) return '<span class="t-none">—</span>';
+  const blocked = ctlState.blocked.includes(ip);
+  const lim = ctlState.limits[ip];
+  const curNode = (ctlState.nodes && ctlState.nodes[ip]) || 'default';
+  const defShort = nodeShort(ctlState.default_node || 'hysteria');
+  const opts = `<option value="default" ${curNode==='default'?'selected':''}>默认 (${defShort})</option>` +
+    NODE_OPTIONS.map(o => `<option value="${o.id}" ${curNode===o.id?'selected':''}>${o.label}</option>`).join('');
+  return `<div class="${isMobile ? 'm-ctl' : 'ctl'}">
+    <select class="mini" style="color:var(--txt);border-color:${curNode!=='default'?'var(--accent)':'var(--line)'};font-weight:${curNode!=='default'?'600':'400'}"
+      onchange="ctl('node',{ip:'${ip}',node:this.value})" title="为该设备单独指定出口节点">${opts}</select>
+    <button class="mini" onclick="actRename('${ip}')">改名</button>
+    <button class="mini warn" onclick="actLimit('${ip}')">${lim ? lim + '/s' : '限速'}</button>
+    <button class="mini ${blocked ? '' : 'danger'}" onclick="${blocked ? `ctl('unblock',{ip:'${ip}'})` : `actBlock('${ip}')`}">${blocked ? '解禁' : '禁用'}</button>
+  </div>`;
+}
+
+function statusCell(x){
+  const ip = x.ip;
+  const tags = [];
+  if (ip && ip !== '-' && !ip.endsWith('.1')) {
+    const customNode = ctlState.nodes && ctlState.nodes[ip];
+    if (customNode) {
+      tags.push(`<span class="tag t-proxy">${nodeShort(customNode)}</span>`);
+    }
+  }
+  const blocked = ip && ip !== '-' && ctlState.blocked.includes(ip);
+  if (blocked) tags.push('<span class="tag t-blocked">已禁用</span>');
+  const lim = ip && ip !== '-' && ctlState.limits[ip];
+  if (lim) tags.push(`<span class="tag t-limited">${lim}/s</span>`);
+  return tags.length ? tags.join(' ') : '';
+}
+
+function fmtSpeed(b){
+  b = +b || 0;
+  if (b <= 0) return '0 B/s';
+  if (b < 1024) return Math.round(b) + ' B/s';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB/s';
+  return (b / (1024 * 1024)).toFixed(2) + ' MB/s';
+}
+
+function fmt(b){
+  b = +b || 0;
+  if (b >= 1073741824) return (b/1073741824).toFixed(2)+' GB';
+  if (b >= 1048576)    return (b/1048576).toFixed(1)+' MB';
+  if (b >= 1024)       return (b/1024).toFixed(1)+' KB';
+  return b+' B';
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function shortHost(h){ return esc(String(h).replace(/:443$/,'').replace(/:5228$/,'')); }
+
+async function load(manual){
+  try{
+    if (manual && document.getElementById('viewHealth').style.display !== 'none') {
+      const f = document.getElementById('healthFrame');
+      if (f && f.contentWindow) {
+        try { f.contentWindow.refresh(); f.contentWindow.renderProbe(); f.contentWindow.renderCtl(); } catch(e) {}
+      }
+    }
+    await loadCtl();
+    renderNodeBar();
+    const r = await fetch(API + '?t=' + Date.now() + '&' + AUTH_QS, {cache:'no-store'});
+    const d = await r.json();
+    render(d);
+    document.getElementById('dot').style.background = 'var(--accent2)';
+    const shortTs = String(d.ts || '').replace(/^\d{4}-\d{2}-\d{2}\s+/, '');
+    document.getElementById('ts').textContent = shortTs || d.ts;
+  }catch(e){
+    document.getElementById('dot').style.background = 'var(--danger)';
+    document.getElementById('ts').textContent = '重试中…';
+  }
+}
+
+function render(d){
+  const devs = d.devices || [], sum = d.summary || {}, tg = d.targets || {}, rec = d.recent || [];
+  const nameOf = ip => (devs.find(x => x.ip === ip) || {}).name || (ctlState.names && ctlState.names[ip]) || '未知设备';
+
+  const totalDn = devs.reduce((a,x) => a + (+x.down||0), 0);
+  const totalConn = devs.reduce((a,x) => a + (+x.conns||0), 0);
+  let proxyN = 0, directN = 0;
+  for (const k in sum){ proxyN += sum[k].proxy||0; directN += sum[k].direct||0; }
+
+  const totalDnSpd = (d.lan || []).reduce((a,x) => a + (+x.down_speed||0), 0) || devs.reduce((a,x) => a + (+x.down_speed||0), 0);
+  const totalUpSpd = (d.lan || []).reduce((a,x) => a + (+x.up_speed||0), 0) || devs.reduce((a,x) => a + (+x.up_speed||0), 0);
+  const isSpeeding = (totalDnSpd > 1024 || totalUpSpd > 1024);
+
+  const proxyCnt = devs.filter(x => (+x.conns||0) > 0).length;
+  const cpuTemp = +d.cpu_temp || 0;
+  const tempColor = cpuTemp >= 75 ? 'var(--danger)' : (cpuTemp >= 62 ? 'var(--warn)' : 'var(--accent2)');
+  const tempState = cpuTemp >= 75 ? '偏热' : (cpuTemp >= 62 ? '温热' : '正常');
+  const cpuLoad = d.cpu_load || '-';
+
+  document.getElementById('stats').innerHTML = `
+    <div class="stat">
+      <div class="k">实时下行速率 ${isSpeeding ? '<span class="live-dot"></span>' : ''}</div>
+      <div class="v" style="color:${isSpeeding?'var(--accent2)':'inherit'}">${fmtSpeed(totalDnSpd).split(' ')[0]}<span class="u">${fmtSpeed(totalDnSpd).split(' ')[1]||'B/s'}</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">实时上行速率</div>
+      <div class="v">${fmtSpeed(totalUpSpd).split(' ')[0]}<span class="u">${fmtSpeed(totalUpSpd).split(' ')[1]||'B/s'}</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">局域网设备</div>
+      <div class="v">${(d.lan||[]).length}<span class="u">台在线 (${proxyCnt}走代理)</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">代理并发连接</div>
+      <div class="v">${totalConn}<span class="u">条并发</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">盒子温度</div>
+      <div class="v" style="color:${tempColor}">${cpuTemp ? cpuTemp + '℃' : '—'}<span class="u">(${tempState})</span></div>
+    </div>
+    <div class="stat">
+      <div class="k">系统负载</div>
+      <div class="v">${cpuLoad}<span class="u">(4核)</span></div>
+    </div>`;
+
+  document.getElementById('devBadge').textContent = devs.length + ' 台';
+  const mx = Math.max(1, ...devs.map(x => (+x.up||0) + (+x.down||0)));
+
+  // 桌面表格
+  document.getElementById('devBody').innerHTML = devs.length ? devs.map(x => {
+    const up = +x.up||0, dn = +x.down||0, tot = up + dn;
+    const pu = tot ? (up/mx*100) : 0, pd = tot ? (dn/mx*100) : 0;
+    const idle = (+x.conns||0) === 0;
+    const st = statusCell(x);
+    const typeTag = x.type ? `<span class="tag t-type">${esc(x.type)}</span>` : '<span class="t-none">—</span>';
+    return `<tr>
+      <td><span class="nm">${esc(x.name)}</span> ${st}<div class="ip">${esc(x.ip)} · ${esc(x.mac)}</div></td>
+      <td>${typeTag}</td>
+      <td class="r">${idle ? '<span class="tag t-direct">空闲</span>' : x.conns}</td>
+      <td class="r">${fmt(up)}</td>
+      <td class="r">${fmt(dn)}</td>
+      <td style="min-width:100px">${idle ? '<span class="t-none">—</span>'
+        : `<div class="bar"><i class="up" style="width:${pu}%"></i><i class="dn" style="width:${pd}%"></i></div>`}</td>
+      <td class="r">${controlCell(x, false)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="8" class="empty">当前没有设备在使用代理</td></tr>';
+
+  // 手机端卡片列表（零横向滚动）
+  document.getElementById('devMobile').innerHTML = devs.length ? devs.map(x => {
+    const up = +x.up||0, dn = +x.down||0;
+    const us = +x.up_speed||0, ds = +x.down_speed||0;
+    const idle = (+x.conns||0) === 0;
+    const st = statusCell(x);
+    const isActive = (ds > 0 || us > 0);
+    const spdHtml = isActive
+      ? `<span class="spd-tag spd-dn"><span class="live-dot"></span> ↓ ${fmtSpeed(ds)}</span> · <span class="spd-tag spd-up">↑ ${fmtSpeed(us)}</span>`
+      : `<span class="spd-tag" style="color:var(--sub)">↓ 0 B/s · ↑ 0 B/s</span>`;
+
+    return `<div class="m-item">
+      <div class="m-top">
+        <div class="m-title">
+          <span class="nm">${esc(x.name)}</span>
+          <span class="ip">${esc(x.ip)}</span>
+          ${st}
+        </div>
+        <div class="m-meta">
+          ${idle ? '空闲' : `${x.conns}条连接`}<br>
+          <span style="color:var(--sub);font-size:11px">总: ↑${fmt(up)} · ↓${fmt(dn)}</span>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:2px;font-size:12px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--sub)">实时网速:</span>
+          ${spdHtml}
+        </div>
+      </div>
+      ${controlCell(x, true)}
+    </div>`;
+  }).join('') : '<div class="empty">当前没有设备在使用代理</div>';
+
+  const lan = d.lan || [];
+  const lanProxyCnt = lan.filter(x => x.via_proxy).length;
+  document.getElementById('lanBadge').textContent = lan.length + ' 在线 · ' + lanProxyCnt + ' 走代理';
+  const lanSorted = lan.slice().sort((a,b) => (b.via_proxy?1:0) - (a.via_proxy?1:0));
+
+  // 桌面局域网表格
+  document.getElementById('lanBody').innerHTML = lanSorted.length ? lanSorted.map(x => {
+    const us = +x.up_speed||0, ds = +x.down_speed||0;
+    const lat = parseFloat(x.latency) || 0;
+    const isActive = (ds > 0 || us > 0);
+    return `<tr>
+      <td><span class="nm">${esc(x.name)}</span> ${statusCell(x)}<div class="ip">${esc(x.ip)}</div></td>
+      <td><span class="mac">${esc(x.mac)}</span></td>
+      <td style="color:var(--sub);font-size:12px">${esc(x.vendor)}</td>
+      <td>${x.type ? `<span class="tag t-type">${esc(x.type)}</span>` : '<span class="t-none">—</span>'}</td>
+      <td class="r">
+        ${isActive
+          ? `<span class="spd-tag spd-dn"><span class="live-dot"></span> ↓${fmtSpeed(ds)}</span><br><span class="spd-tag spd-up">↑${fmtSpeed(us)}</span>`
+          : '<span class="t-none" style="font-size:11px">↓ 0 B/s · ↑ 0 B/s</span>'}
+      </td>
+      <td class="r">
+        ${x.via_proxy
+          ? '<span class="tag t-proxy">走代理</span>'
+          : (x.state === 'ONLINE'
+            ? '<span class="tag t-direct">在线</span>'
+            : '<span class="tag t-none">待机</span>')}
+        ${lat > 0 ? `<div class="lat-badge">${lat.toFixed(1)}ms</div>` : ''}
+      </td>
+      <td class="r">${controlCell(x, false)}</td>
+    </tr>`;
+  }).join('') : '<tr><td colspan="7" class="empty">未发现局域网设备</td></tr>';
+
+  // 手机端局域网卡片列表
+  document.getElementById('lanMobile').innerHTML = lanSorted.length ? lanSorted.map(x => {
+    const stBadge = x.via_proxy
+      ? '<span class="tag t-proxy">走代理</span>'
+      : (x.state === 'ONLINE' ? '<span class="tag t-direct">在线</span>' : '<span class="tag t-none">待机</span>');
+    const us = +x.up_speed||0, ds = +x.down_speed||0;
+    const lat = parseFloat(x.latency) || 0;
+    const hasTraffic = (+x.up > 0 || +x.down > 0);
+    const isActive = (ds > 0 || us > 0);
+    const spdHtml = isActive
+      ? `<span class="spd-tag spd-dn"><span class="live-dot"></span> ↓ ${fmtSpeed(ds)}</span> · <span class="spd-tag spd-up">↑ ${fmtSpeed(us)}</span>`
+      : `<span class="spd-tag" style="color:var(--sub)">↓ 0 B/s · ↑ 0 B/s</span>`;
+
+    return `<div class="m-item">
+      <div class="m-top">
+        <div class="m-title">
+          <span class="nm">${esc(x.name)}</span>
+          <span class="ip">${esc(x.ip)}</span>
+          ${statusCell(x)}
+        </div>
+        <div class="m-meta">
+          ${stBadge}
+          ${lat > 0 ? `<span class="lat-badge" style="margin-left:3px">(${lat.toFixed(1)}ms)</span>` : ''}
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;font-size:12px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:11px;color:var(--sub)">网速:</span>
+          ${spdHtml}
+        </div>
+        <div style="font-size:11px;color:var(--sub)">
+          ${hasTraffic ? `总: ↑${fmt(x.up)} ↓${fmt(x.down)}` : (x.conns > 0 ? `${x.conns}条连接` : '空闲')}
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--sub);display:flex;gap:6px;align-items:center;margin-top:3px">
+        <span>${esc(x.vendor)}</span>
+        <span>·</span>
+        <span class="mac">${esc(x.mac)}</span>
+        ${x.type ? `<span>·</span><span class="tag t-type" style="padding:0 5px">${esc(x.type)}</span>` : ''}
+      </div>
+      ${controlCell(x, true)}
+    </div>`;
+  }).join('') : '<div class="empty">未发现局域网设备</div>';
+
+  const ips = Object.keys(tg).sort((a,b) => (tg[b].sites.length) - (tg[a].sites.length));
+  const tEl = document.getElementById('targets');
+  if (!ips.length){ tEl.innerHTML = '<div class="empty">日志中暂无走代理的访问记录</div>'; }
+  else {
+    tEl.innerHTML = ips.map(ip => {
+      const sites = tg[ip].sites || [];
+      return `<div class="dev-h"><span class="n">${esc(nameOf(ip))}</span>
+        <span class="m">${esc(ip)}</span>
+        <span class="tag t-proxy">${sites.length} 个站点</span></div>
+        <div class="hosts">${sites.slice(0,20).map(s =>
+          `<span class="host"><b>${shortHost(s.host)}</b><i>${s.count}</i></span>`).join('')}
+        ${sites.length>20?`<span class="host" style="color:var(--sub)">+${sites.length-20}…</span>`:''}</div>`;
+    }).join('');
+  }
+
+  const sEl = document.getElementById('summary');
+  const sips = Object.keys(sum).sort((a,b) => sum[b].proxy - sum[a].proxy);
+  sEl.innerHTML = sips.length ? sips.map(ip => {
+    const p = sum[ip].proxy||0, di = sum[ip].direct||0, t = p + di || 1;
+    const pp = (p/t*100).toFixed(0);
+    return `<div style="margin-bottom:11px">
+      <div style="display:flex;justify-content:space-between;font-size:12px">
+        <span class="nm">${esc(nameOf(ip))} <span style="color:var(--sub);font-size:11px;font-weight:400">${esc(ip)}</span></span>
+        <span style="color:var(--sub);font-size:11px">代理 ${p} · 直连 ${di}</span></div>
+      <div class="bar" style="margin-top:5px;height:6px">
+        <i style="width:${pp}%;background:var(--accent)"></i>
+        <i style="width:${100-pp}%;background:var(--accent2);opacity:.5"></i></div>
+    </div>`;
+  }).join('') : '<div class="empty">暂无数据</div>';
+
+  document.getElementById('flow').innerHTML = rec.length ? rec.slice().reverse().map(r => {
+    const isDirect = r.route === 'direct' || r.route === 'block';
+    const rLabel = isDirect ? '直连' : nodeShort(r.route);
+    return `<div class="fl"><span class="h">${esc(nameOf(r.ip))} → ${shortHost(r.host)}</span>
+     <span class="tag ${isDirect?'t-direct':'t-proxy'}">${esc(rLabel)}</span></div>`;
+  }).join('') : '<div class="empty">暂无记录</div>';
+}
+
+document.getElementById('toggle').addEventListener('click', e => {
+  auto = !auto;
+  e.target.textContent = auto ? '自动' : '暂停';
+  e.target.classList.toggle('on', auto);
+  if (auto) start(); else stop();
+});
+function start(){ stop(); timer = setInterval(load, 3000); }
+function stop(){ if (timer){ clearInterval(timer); timer = null; } }
+
+document.getElementById('dlgNameOk').addEventListener('click', async () => {
+  const ip = document.getElementById('dlgNameIp').textContent.split('　')[0];
+  const nm = document.getElementById('dlgNameInput').value.trim();
+  document.getElementById('dlgName').close();
+  await ctl('name', {ip, name: nm});
+});
+
+document.getElementById('dlgLimitInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('dlgLimitOk').click();
+});
+document.querySelectorAll('#dlgLimit .presets span').forEach(s => {
+  s.addEventListener('click', () => {
+    document.getElementById('dlgLimitInput').value = s.dataset.v;
+  });
+});
+document.getElementById('dlgLimitOk').addEventListener('click', async () => {
+  const ip = document.getElementById('dlgLimitIp').textContent.split('　')[0];
+  const rate = document.getElementById('dlgLimitInput').value || '0';
+  document.getElementById('dlgLimit').close();
+  await ctl('limit', {ip, rate});
+});
+
+document.getElementById('dlgBlockOk').addEventListener('click', async () => {
+  const ip = document.getElementById('dlgBlockIp').textContent.split('　')[0];
+  document.getElementById('dlgBlock').close();
+  await ctl('block', {ip});
+});
+
+document.querySelectorAll('dialog').forEach(d => {
+  d.addEventListener('click', e => { if (e.target === d) d.close(); });
+});
+
+load();
+start();
+
+let rawCfConfig = null;
+
+async function loadCfFullConfig(notify){
+  const badge = document.getElementById('cfCfgStatusBadge');
+  if(badge) badge.textContent = '正在读取…';
+  if(notify) toast('正在从 Cloudflare 后台拉取最新配置…');
+  try{
+    const r = await fetch(CTL + '?action=cf_config_get&t=' + Date.now() + '&' + AUTH_QS, {cache:'no-store'});
+    const d = await r.json();
+    if(d.ok && d.config){
+      rawCfConfig = d.config;
+      renderCfFullConfig(rawCfConfig);
+      if(badge) badge.textContent = '云端已同步';
+      if(notify) toast('✅ 已成功拉取 Cloudflare 最新配置！');
+    } else {
+      if(badge) badge.textContent = '获取失败';
+      if(notify) toast('无法获取 Cloudflare 配置：' + (d.msg || '未知错误'), true);
+    }
+  }catch(e){
+    if(badge) badge.textContent = '连接超时';
+    if(notify) toast('拉取失败：' + e.message, true);
+  }
+}
+
+function renderCfFullConfig(cfg){
+  if(!cfg) return;
+  const val = (id, v) => { const el = document.getElementById(id); if(el) el.value = (v === undefined || v === null) ? '' : v; };
+  const chk = (id, v) => { const el = document.getElementById(id); if(el) el.checked = Boolean(v); };
+
+  const hostVal = (cfg.HOST && cfg.HOST !== 'cf-1012.pages.dev') ? cfg.HOST : ((cfg.HOSTS && cfg.HOSTS[0]) || '1012.us.ci');
+  val('cf_host', hostVal);
+  const alink = document.getElementById('cfAdminLink');
+  if(alink) { alink.href = 'https://' + hostVal + '/admin'; alink.innerText = hostVal + '/admin'; }
+  val('cf_uuid', cfg.UUID || '');
+  val('cf_path', cfg.PATH || '/');
+  val('cf_protocol', cfg['协议类型'] || 'vless');
+  val('cf_network', cfg['传输协议'] || 'ws');
+  val('cf_fingerprint', cfg.Fingerprint || 'chrome');
+  val('cf_alpn', cfg.ALPN || '');
+
+  chk('cf_skipVerify', cfg['跳过证书验证']);
+  chk('cf_randomPath', cfg['随机路径']);
+  chk('cf_earlyData', cfg['启用0RTT']);
+  chk('cf_fragSR', cfg['TLS分片'] === 'Shadowrocket');
+  chk('cf_fragHapp', cfg['TLS分片'] === 'Happ');
+
+  chk('cf_enableECH', cfg.ECH);
+  val('cf_echDns', cfg.ECHConfig?.DNS || 'https://dns.alidns.com/dns-query');
+  val('cf_echSni', cfg.ECHConfig?.SNI || 'cloudflare-ech.com');
+
+  val('cf_proxyMode', cfg['反代']?.proxyMode || 'auto');
+  const pIp = cfg['反代']?.PROXYIP || '';
+  chk('cf_autoProxy', pIp === 'auto');
+  val('cf_proxyIP', pIp === 'auto' ? 'ProxyIP.US.CMLiussss.Net' : pIp);
+  toggleAutoProxy();
+}
+
+function toggleAutoProxy(){
+  const isAuto = document.getElementById('cf_autoProxy')?.checked;
+  const ipEl = document.getElementById('cf_proxyIP');
+  if(ipEl) ipEl.disabled = Boolean(isAuto);
+}
+
+function setProxyIP(v){
+  const el = document.getElementById('cf_proxyIP');
+  if(el){ el.value = v; el.disabled = false; }
+  const autoEl = document.getElementById('cf_autoProxy');
+  if(autoEl) autoEl.checked = false;
+}
+
+function setEchDns(v){
+  const el = document.getElementById('cf_echDns');
+  if(el) el.value = v;
+}
+
+function setEchSni(v){
+  const el = document.getElementById('cf_echSni');
+  if(el) el.value = v;
+}
+
+async function saveCfFullConfig(){
+  if(!rawCfConfig){
+    toast('尚未加载配置，请重试', true);
+    return;
+  }
+  const btn = document.getElementById('btnSaveCfConfig');
+  const notice = document.getElementById('cfSaveNotice');
+  if(btn) btn.disabled = true;
+  if(notice) notice.textContent = '正在保存至 Cloudflare…';
+  toast('正在提交至 Cloudflare 并更新 N1 内核…');
+
+  try{
+    const subName = document.getElementById('cf_subName')?.value.trim() || 'edgetunnel';
+    const host = document.getElementById('cf_host')?.value.trim() || '';
+    const uuid = document.getElementById('cf_uuid')?.value.trim() || '';
+    const path = document.getElementById('cf_path')?.value.trim() || '/';
+
+    if(!rawCfConfig['优选订阅生成']) rawCfConfig['优选订阅生成'] = {};
+    rawCfConfig['优选订阅生成'].SUBNAME = subName;
+    rawCfConfig.SUBNAME = subName;
+    rawCfConfig.HOST = host;
+    rawCfConfig.UUID = uuid;
+    rawCfConfig.PATH = path;
+    rawCfConfig['协议类型'] = document.getElementById('cf_protocol')?.value || 'vless';
+    rawCfConfig['传输协议'] = document.getElementById('cf_network')?.value || 'ws';
+    rawCfConfig.Fingerprint = document.getElementById('cf_fingerprint')?.value || 'chrome';
+    rawCfConfig.ALPN = document.getElementById('cf_alpn')?.value || '';
+
+    rawCfConfig['跳过证书验证'] = document.getElementById('cf_skipVerify')?.checked || false;
+    rawCfConfig['随机路径'] = document.getElementById('cf_randomPath')?.checked || false;
+    rawCfConfig['启用0RTT'] = document.getElementById('cf_earlyData')?.checked || false;
+
+    const isSR = document.getElementById('cf_fragSR')?.checked;
+    const isHapp = document.getElementById('cf_fragHapp')?.checked;
+    rawCfConfig['TLS分片'] = isSR ? 'Shadowrocket' : (isHapp ? 'Happ' : null);
+
+    rawCfConfig.ECH = document.getElementById('cf_enableECH')?.checked || false;
+    if(!rawCfConfig.ECHConfig) rawCfConfig.ECHConfig = {};
+    rawCfConfig.ECHConfig.DNS = document.getElementById('cf_echDns')?.value.trim() || 'https://dns.alidns.com/dns-query';
+    rawCfConfig.ECHConfig.SNI = document.getElementById('cf_echSni')?.value.trim() || 'cloudflare-ech.com';
+
+    if(!rawCfConfig['反代']) rawCfConfig['反代'] = {};
+    rawCfConfig['反代'].proxyMode = document.getElementById('cf_proxyMode')?.value || 'auto';
+    const isAuto = document.getElementById('cf_autoProxy')?.checked;
+    rawCfConfig['反代'].PROXYIP = isAuto ? 'auto' : (document.getElementById('cf_proxyIP')?.value.trim() || 'ProxyIP.US.CMLiussss.Net');
+
+    const res = await fetch(CTL + '?action=cf_config_save&t=' + Date.now() + '&' + AUTH_QS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rawCfConfig)
+    });
+    const d = await res.json();
+    if(d.ok){
+      toast('✅ 配置已成功保存至 Cloudflare 并即时在 N1 生效！');
+      if(notice) notice.textContent = '保存成功 ' + new Date().toLocaleTimeString();
+      await loadCtl();
+    } else {
+      toast('保存失败：' + (d.msg || '未知错误'), true);
+      if(notice) notice.textContent = '保存失败';
+    }
+  }catch(e){
+    toast('保存发生异常：' + e.message, true);
+    if(notice) notice.textContent = '保存异常';
+  }finally{
+    if(btn) btn.disabled = false;
+  }
+}
+
+</script>
+</body>
+</html>

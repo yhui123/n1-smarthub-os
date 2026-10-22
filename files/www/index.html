@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0d1117">
+<title>N1 OS · 智能中枢系统</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💠</text></svg>">
+<style>
+  :root {
+    --bg: #090d16;
+    --card: rgba(19, 26, 42, 0.75);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --card-hover: rgba(26, 36, 58, 0.9);
+    --text: #f0f6fc;
+    --sub: #8b949e;
+    --accent: #38bdf8;
+    --accent-glow: rgba(56, 189, 248, 0.25);
+    --success: #10b981;
+    --success-glow: rgba(16, 185, 129, 0.2);
+    --warn: #f59e0b;
+    --danger: #ef4444;
+    --radius: 18px;
+    --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0; padding: 0;
+    background: radial-gradient(circle at 50% 0%, #151e33 0%, var(--bg) 75%);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+    padding-bottom: 50px;
+  }
+
+  .wrap { max-width: 860px; margin: 0 auto; padding: 18px 16px; }
+
+  /* 顶栏 */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 4px 18px;
+  }
+  .logo-box { display: flex; align-items: center; gap: 10px; }
+  .logo-icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: linear-gradient(135deg, #0284c7, #38bdf8);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; box-shadow: 0 4px 14px var(--accent-glow);
+  }
+  .logo-text h1 { font-size: 19px; font-weight: 700; margin: 0; letter-spacing: 0.5px; }
+  .logo-text p { font-size: 11px; color: var(--sub); margin: 2px 0 0; }
+  .net-badge {
+    font-size: 11px; padding: 4px 10px; border-radius: 20px;
+    background: rgba(16, 185, 129, 0.15); color: var(--success);
+    border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 500;
+  }
+  .net-badge.wan { background: rgba(245, 158, 11, 0.15); color: var(--warn); border-color: rgba(245, 158, 11, 0.3); }
+
+  /* 状态指标条 */
+  .metrics-bar {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    margin-bottom: 20px;
+  }
+  .metric-card {
+    background: var(--card); border: 1px solid var(--card-border);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-radius: 12px; padding: 10px 12px; text-align: center;
+  }
+  .metric-val { font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+  .metric-val.green { color: var(--success); }
+  .metric-lbl { font-size: 10.5px; color: var(--sub); }
+
+  /* 卡片模块 */
+  .section-card {
+    background: var(--card); border: 1px solid var(--card-border);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 18px;
+    box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .section-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+  }
+
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-title {
+    font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin: 0;
+  }
+  .status-pill {
+    font-size: 11px; padding: 3px 9px; border-radius: 20px;
+    background: rgba(16, 185, 129, 0.16); color: var(--success);
+    font-weight: 600; display: inline-flex; align-items: center; gap: 5px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .dot.blink { animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.4;transform:scale(0.8)} }
+
+  /* 智能家居模块按钮 */
+  .ha-hero {
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(135deg, rgba(2, 132, 199, 0.2), rgba(56, 189, 248, 0.05));
+    border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px;
+    padding: 16px; margin: 12px 0 14px; text-decoration: none; color: inherit;
+    transition: all 0.25s ease;
+  }
+  .ha-hero:active { transform: scale(0.985); }
+  .ha-hero-info h3 { margin: 0 0 4px; font-size: 16px; color: #fff; }
+  .ha-hero-info p { margin: 0; font-size: 12px; color: var(--sub); }
+  .ha-btn {
+    background: linear-gradient(135deg, #0ea5e9, #0284c7);
+    color: #fff; font-size: 13.5px; font-weight: 600;
+    padding: 8px 16px; border-radius: 10px; display: inline-flex;
+    align-items: center; gap: 6px; box-shadow: 0 4px 12px var(--accent-glow);
+  }
+  .badges-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .eco-badge {
+    font-size: 11px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.08);
+    padding: 3px 8px; border-radius: 6px; color: #cbd5e1;
+  }
+
+  /* 节点优化模块 */
+  .node-status-box {
+    background: rgba(0,0,0,0.25); border-radius: 12px; padding: 14px;
+    margin-bottom: 14px; border: 1px solid rgba(255,255,255,0.04);
+  }
+  .node-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .node-row:last-child { margin-bottom: 0; }
+  .node-label { font-size: 12px; color: var(--sub); }
+  .node-val { font-size: 13.5px; font-weight: 600; color: #fff; }
+  .node-val.accent { color: var(--accent); }
+  .latency-tag {
+    font-size: 11px; padding: 2px 7px; border-radius: 6px;
+    background: rgba(16, 185, 129, 0.15); color: var(--success); font-weight: 700;
+  }
+
+  /* 一键优选测速大按钮 */
+  .optimize-btn {
+    width: 100%; border: 0; cursor: pointer;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #fff; font-size: 15px; font-weight: 700;
+    padding: 14px; border-radius: 12px; display: flex;
+    align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 16px var(--success-glow);
+    transition: all 0.2s ease;
+  }
+  .optimize-btn:active { transform: scale(0.985); }
+  .optimize-btn.loading {
+    background: linear-gradient(135deg, #64748b, #475569);
+    pointer-events: none; opacity: 0.85;
+  }
+
+  /* 节点快速切换栏 */
+  .node-pills-title { font-size: 12px; color: var(--sub); margin: 14px 0 8px; }
+  .node-pills { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  @media (max-width: 500px) { .node-pills { grid-template-columns: repeat(2, 1fr); } }
+  .pill-btn {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    color: #cbd5e1; border-radius: 10px; padding: 10px 8px; font-size: 12px;
+    text-align: center; cursor: pointer; transition: all 0.2s ease; font-weight: 500;
+  }
+  .pill-btn:active { transform: scale(0.96); }
+  .pill-btn.active {
+    background: rgba(56, 189, 248, 0.15); border-color: var(--accent);
+    color: #fff; font-weight: 700; box-shadow: 0 0 12px var(--accent-glow);
+  }
+
+  /* 公网穿透一览 */
+  .tunnel-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+  .tunnel-item {
+    background: rgba(0,0,0,0.2); border-radius: 10px; padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,0.04); display: flex; justify-content: space-between; align-items: center;
+  }
+  .tunnel-name { font-size: 12.5px; font-weight: 600; color: #fff; }
+  .tunnel-port { font-size: 11px; color: var(--accent); font-family: monospace; }
+
+  /* 底部快速通道 */
+  .footer-links {
+    display: flex; justify-content: center; gap: 16px; margin-top: 26px;
+    font-size: 12.5px; color: var(--sub);
+  }
+  .footer-links a { color: var(--sub); text-decoration: none; }
+  .footer-links a:hover { color: var(--text); }
+
+  /* 悬浮 Toast 提示 */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.95); border: 1px solid var(--accent);
+    color: #fff; padding: 10px 20px; border-radius: 20px; font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5); display: none; z-index: 9999;
+    backdrop-filter: blur(10px); text-align: center; max-width: 90%;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- 顶栏 -->
+  <header>
+    <div class="logo-box">
+      <div class="logo-icon">💠</div>
+      <div class="logo-text">
+        <h1>N1 OS 智能中枢</h1>
+        <p>Phicomm N1 · 全功能网关系统</p>
+      </div>
+    </div>
+    <span class="net-badge" id="netBadge">检测网络…</span>
+  </header>
+
+  <!-- 硬件健康监控条 -->
+  <div class="metrics-bar">
+    <div class="metric-card">
+      <div class="metric-val green" id="tempVal">46℃</div>
+      <div class="metric-lbl">核心温度</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val" id="loadVal">0.45</div>
+      <div class="metric-lbl">CPU 负载</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val green" id="memVal">1.2 GB</div>
+      <div class="metric-lbl">可用内存</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-val" id="storageVal">2.2 GB</div>
+      <div class="metric-lbl">剩余存储</div>
+    </div>
+  </div>
+
+  <!-- 模块 1：智能家居控制中心 -->
+  <div class="section-card">
+    <div class="card-head">
+      <h2 class="card-title">🏠 智能家居中枢 (Home Assistant)</h2>
+      <span class="status-pill"><span class="dot blink"></span>运行中</span>
+    </div>
+    
+    <a id="haLaunchLink" href="#" target="_blank" class="ha-hero">
+      <div class="ha-hero-info">
+        <h3>全屋智能设备控制台</h3>
+        <p id="haUrlSubtitle">点击在新标签页全屏独立打开 ↗</p>
+        <div class="badges-row">
+          <span class="eco-badge">米家 Miot 全家桶</span>
+          <span class="eco-badge">向日葵 C1Pro 插座</span>
+          <span class="eco-badge">Apple HomeKit (Siri)</span>
+        </div>
+      </div>
+      <div class="ha-btn">立即进入 ↗</div>
+    </a>
+  </div>
+
+  <!-- 模块 2：节点网络与全自动优选 -->
+  <div class="section-card">
+    <div class="card-head">
+      <h2 class="card-title">⚡ 节点网络与智能优选</h2>
+      <span class="status-pill"><span class="dot blink"></span>自愈守护中</span>
+    </div>
+
+    <div class="node-status-box">
+      <div class="node-row">
+        <span class="node-label">当前活跃出站节点</span>
+        <span class="node-val accent" id="curDefaultNode">Hysteria 2 美专线</span>
+      </div>
+      <div class="node-row">
+        <span class="node-label">Cloudflare 最佳优选 IP</span>
+        <span class="node-val" id="curCfBest">152.67.211.114:58337</span>
+      </div>
+      <div class="node-row">
+        <span class="node-label">最优延迟 & 更新时间</span>
+        <span>
+          <span class="latency-tag" id="curLatency">288ms</span>
+          <span style="font-size:11px;color:var(--sub);margin-left:6px;" id="curCfTime">刚刚</span>
+        </span>
+      </div>
+    </div>
+
+    <!-- 手机一键优选大按钮 -->
+    <button class="optimize-btn" id="btnOptimize" onclick="triggerOptimization()">
+      <span>⚡</span> 一键智能优选测速 (自动匹配最快 IP)
+    </button>
+
+    <!-- 节点一键切换药丸 -->
+    <div class="node-pills-title">一键切换默认节点：</div>
+    <div class="node-pills">
+      <div class="pill-btn" data-node="hysteria" onclick="switchNode('hysteria')">🚀 Hysteria 专线</div>
+      <div class="pill-btn" data-node="cf-us" onclick="switchNode('cf-us')">🇺🇸 CF 美国优选</div>
+      <div class="pill-btn" data-node="cf-jp" onclick="switchNode('cf-jp')">🇯🇵 CF 日本优选</div>
+      <div class="pill-btn" data-node="cf-sg" onclick="switchNode('cf-sg')">🇸🇬 CF 新加坡</div>
+      <div class="pill-btn" data-node="cf-hk" onclick="switchNode('cf-hk')">🇭🇰 CF 香港优选</div>
+      <div class="pill-btn" data-node="direct" onclick="switchNode('direct')">⚡ 直连 Direct</div>
+    </div>
+  </div>
+
+  <!-- 模块 3：24h 智能大脑 (AI 哨兵) -->
+  <div class="section-card">
+    <div class="card-head">
+      <h2 class="card-title">🛡️ 24h AI 哨兵 (N1 Sentinel)</h2>
+      <span class="status-pill"><span class="dot"></span>在线运行</span>
+    </div>
+    <div style="font-size:12.5px;color:var(--sub);line-height:1.6;">
+      电脑关机时，N1 盒子在后台提供 24 小时低功耗智能问答与多端协同。<br>
+      已就绪模型：<strong style="color:#fff;">智谱 GLM-4.5 / 4.6V</strong> · 备用灾备：<strong style="color:#fff;">Google Gemini 3.5</strong>
+    </div>
+  </div>
+
+  <!-- 模块 4：远程穿透隧道一览 -->
+  <div class="section-card">
+    <div class="card-head">
+      <h2 class="card-title">🚀 公网隧道 (5G 随时随地直连)</h2>
+      <span style="font-size:11px;color:var(--sub);" id="frpHostText">159.75.51.41</span>
+    </div>
+    <div class="tunnel-grid">
+      <div class="tunnel-item">
+        <span class="tunnel-name">🏠 智能家居 HA</span>
+        <span class="tunnel-port">:20823</span>
+      </div>
+      <div class="tunnel-item">
+        <span class="tunnel-name">💠 N1 OS 管理页</span>
+        <span class="tunnel-port">:20080</span>
+      </div>
+      <div class="tunnel-item">
+        <span class="tunnel-name">🛡️ AI 哨兵接口</span>
+        <span class="tunnel-port">:20889</span>
+      </div>
+      <div class="tunnel-item">
+        <span class="tunnel-name">🔑 SSH 远程终端</span>
+        <span class="tunnel-port">:20022</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 底部管理导航 -->
+  <div class="footer-links">
+    <a href="/proxy-panel.html">📊 流量与设备管理</a>
+    <span>·</span>
+    <a href="/cgi-bin/luci/" target="_blank">🛠️ 传统路由后台 (LuCI)</a>
+    <span>·</span>
+    <a href="javascript:showAddHomeScreenTip()">📱 保存到手机桌面</a>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+var TOKEN = '';
+try { TOKEN = localStorage.getItem('n1_token') || 'd1d20aec7451ab4ebbfb1e6dfe11f22b'; } catch(e){}
+
+var isLan = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/.test(location.hostname);
+
+function showToast(msg, dur) {
+  var t = document.getElementById('toast');
+  t.innerHTML = msg; t.style.display = 'block';
+  setTimeout(function(){ t.style.display = 'none'; }, dur || 2800);
+}
+
+function showAddHomeScreenTip() {
+  showToast('📱 点击手机浏览器底部的【分享/菜单】图标，选择【添加到主屏幕】，即可像 App 一样全屏使用 N1 OS！', 4500);
+}
+
+// 适配内外网 HA 地址
+function updateHaLinks() {
+  var haUrl = '';
+  if (isLan) {
+    haUrl = 'http://' + location.hostname + ':8123/';
+  } else {
+    haUrl = 'http://159.75.51.41:20823/';
+  }
+  var link = document.getElementById('haLaunchLink');
+  var sub = document.getElementById('haUrlSubtitle');
+  if (link) link.href = haUrl;
+  if (sub) sub.textContent = '直达: ' + haUrl;
+
+  var b = document.getElementById('netBadge');
+  b.textContent = isLan ? '🏠 局域网高速直连' : '🚀 5G 公网 FRP 穿透';
+  b.className = 'net-badge' + (isLan ? '' : ' wan');
+}
+
+// 刷新状态数据
+function refreshStatus() {
+  fetch('/cgi-bin/n1-status?token=' + encodeURIComponent(TOKEN) + '&_=' + Date.now())
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d.sys) {
+      if (d.sys.temp_c) document.getElementById('tempVal').textContent = d.sys.temp_c + '℃';
+      if (d.sys.load1) document.getElementById('loadVal').textContent = d.sys.load1;
+      if (d.sys.mem_avail_mb) {
+        var gb = (d.sys.mem_avail_mb / 1024).toFixed(1);
+        document.getElementById('memVal').textContent = gb + ' GB';
+      }
+    }
+    if (d.proxy) {
+      var cfInfo = d.proxy.cf_ip || '';
+      if (cfInfo) document.getElementById('curCfBest').textContent = cfInfo;
+      if (d.proxy.cf_ms) document.getElementById('curLatency').textContent = d.proxy.cf_ms + 'ms';
+      if (d.proxy.cf_ts) document.getElementById('curCfTime').textContent = d.proxy.cf_ts.split('_')[1] || d.proxy.cf_ts;
+      if (d.proxy.out) {
+        var nodeNameMap = {
+          'hysteria': '🚀 Hysteria 2 美专线',
+          'cf-us': '🇺🇸 CF 美国优选',
+          'cf-jp': '🇯🇵 CF 日本优选',
+          'cf-sg': '🇸🇬 CF 新加坡',
+          'cf-hk': '🇭🇰 CF 香港优选',
+          'direct': '⚡ 直连 Direct'
+        };
+        var name = nodeNameMap[d.proxy.out] || d.proxy.out;
+        document.getElementById('curDefaultNode').textContent = name;
+        updatePills(d.proxy.out);
+      }
+    }
+  }).catch(function(){});
+}
+
+function updatePills(activeNode) {
+  var pills = document.querySelectorAll('.pill-btn');
+  pills.forEach(function(p){
+    if (p.getAttribute('data-node') === activeNode) {
+      p.classList.add('active');
+    } else {
+      p.classList.remove('active');
+    }
+  });
+}
+
+// 一键智能优选测速
+function triggerOptimization() {
+  var btn = document.getElementById('btnOptimize');
+  btn.classList.add('loading');
+  btn.innerHTML = '<span>⏳</span> 正在多线程并发测速与优选最优 IP...';
+  showToast('⚡ 正在探测 16+ Cloudflare 优质节点，请稍候约 5 秒...', 4000);
+
+  fetch('/cgi-bin/proxy-ctl?action=cf_update&token=' + encodeURIComponent(TOKEN), {method:'POST'})
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    btn.classList.remove('loading');
+    btn.innerHTML = '<span>⚡</span> 一键智能优选测速 (自动匹配最快 IP)';
+    showToast('✅ 优选完成！' + (res.msg || '已切换至最佳低延迟 IP'), 3500);
+    setTimeout(refreshStatus, 1500);
+  }).catch(function(){
+    btn.classList.remove('loading');
+    btn.innerHTML = '<span>⚡</span> 一键智能优选测速 (自动匹配最快 IP)';
+    showToast('⚠️ 优选任务已在后台执行', 2500);
+  });
+}
+
+// 一键切换节点
+function switchNode(nodeName) {
+  showToast('正在切换节点至 ' + nodeName + '...', 1800);
+  fetch('/cgi-bin/proxy-ctl?action=node&ip=default&node=' + encodeURIComponent(nodeName) + '&token=' + encodeURIComponent(TOKEN), {method:'POST'})
+  .then(function(r){ return r.json(); })
+  .then(function(res){
+    if (res.ok) {
+      showToast('✅ 节点切换成功！已应用至全局出站', 2500);
+      updatePills(nodeName);
+      setTimeout(refreshStatus, 1200);
+    } else {
+      showToast('❌ 切换失败: ' + (res.msg||'未知错误'), 3000);
+    }
+  }).catch(function(){
+    showToast('⚠️ 指令已提交', 2000);
+  });
+}
+
+updateHaLinks();
+refreshStatus();
+setInterval(refreshStatus, 10000);
+</script>
+</body>
+</html>

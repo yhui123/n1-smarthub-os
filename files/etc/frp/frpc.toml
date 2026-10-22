@@ -1,0 +1,41 @@
+serverAddr = "159.75.51.41"
+serverPort = 7000
+auth.method = "token"
+auth.token = "110e989d0d4223554deb096b19a660410525bf48ff2263b6"
+
+transport.tls.enable = true
+transport.tls.certFile = "/etc/frp/certs/client.crt"
+transport.tls.keyFile = "/etc/frp/certs/client.key"
+transport.tls.trustedCaFile = "/etc/frp/certs/ca.crt"
+transport.tls.serverName = "159.75.51.41"
+
+transport.poolCount = 3
+transport.tcpMux = true
+
+[[proxies]]
+name = "n1-web"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 80
+remotePort = 20080
+
+[[proxies]]
+name = "n1-ssh"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 22
+remotePort = 20022
+
+[[proxies]]
+name = "n1-sentinel"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8888
+remotePort = 20889
+
+[[proxies]]
+name = "n1-homeassistant"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8123
+remotePort = 20823

@@ -1,0 +1,132 @@
+name: Build N1-SmartHub-OS (Kernel 6.1.y LTS)
+
+on:
+  repository_dispatch:
+  workflow_dispatch:
+    inputs:
+      kernel:
+        description: 'Amlogic Kernel Version'
+        required: true
+        default: '6.1.120'
+      board:
+        description: 'Target Board'
+        required: true
+        default: 'phicomm-n1'
+
+env:
+  REPO_URL: https://github.com/immortalwrt/immortalwrt.git
+  REPO_BRANCH: openwrt-23.05
+  CONFIG_FILE: config/n1-smarthub.config
+  DIY_P1_SH: scripts/diy-part1.sh
+  DIY_P2_SH: scripts/diy-part2.sh
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_RELEASE: true
+  TZ: Asia/Shanghai
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Free Disk Space (Ubuntu Runner)
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+        sudo docker image prune -a -f || true
+        sudo -E apt-get -qq update
+        sudo -E apt-get -qq full-upgrade -y
+        sudo -E apt-get -qq install -y ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential \
+          bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib \
+          git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev \
+          libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev \
+          libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 \
+          python3-pip libpython3-dev qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs \
+          upx-ucl unzip vim wget xmlto xxd zlib1g-dev pigz
+        sudo -E apt-get -qq autoremove --purge
+        sudo -E apt-get -qq clean
+        sudo timedatectl set-timezone "$TZ"
+        df -h
+
+    - name: Clone Source Code
+      run: |
+        git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+
+    - name: Load Custom Feeds & Scripts (Part 1)
+      run: |
+        [ -e $DIY_P1_SH ] && chmod +x $DIY_P1_SH && $DIY_P1_SH
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+
+    - name: Load Custom Config & Files (Part 2)
+      run: |
+        [ -e $CONFIG_FILE ] && cp $CONFIG_FILE openwrt/.config
+        [ -e $DIY_P2_SH ] && chmod +x $DIY_P2_SH && cd openwrt && ../$DIY_P2_SH && cd ..
+        cd openwrt
+        make defconfig
+        if [ -d "../files" ]; then
+          echo "Copying custom files into openwrt/files..."
+          mkdir -p files
+          cp -r ../files/* files/
+        fi
+
+    - name: Download DL Packages
+      id: package
+      run: |
+        cd openwrt
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: Compile Rootfs
+      id: compile
+      run: |
+        cd openwrt
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+
+    - name: Package Amlogic S905D Firmware
+      if: steps.compile.outputs.status == 'success'
+      uses: ophub/amlogic-s9xxx-openwrt@main
+      with:
+        openwrt_path: openwrt/bin/targets/*/*
+        openwrt_board: ${{ github.event.inputs.board || 'phicomm-n1' }}
+        openwrt_kernel: ${{ github.event.inputs.kernel || '6.1.120' }}
+        auto_kernel: false
+        kernel_repo: ophub/kernel
+        output_name: N1-SmartHub-OS
+
+    - name: Upload Firmware to Artifacts
+      uses: actions/upload-artifact@v4
+      if: env.UPLOAD_FIRMWARE == 'true'
+      with:
+        name: N1-SmartHub-OS-Firmware
+        path: ${{ env.PACKAGED_OUTPUTPATH }}/*
+
+    - name: Create GitHub Release
+      id: release
+      uses: softprops/action-gh-release@v2
+      if: env.UPLOAD_RELEASE == 'true'
+      with:
+        tag_name: v1.0.0-N1-SmartHub
+        name: N1-SmartHub-OS 专属固件 (Kernel 6.1.y LTS)
+        body: |
+          ### 🚀 N1-SmartHub-OS 专属固件已完成编译与打包！
+          * **硬件目标**：斐讯 N1 (Amlogic S905D)
+          * **内核版本**：Linux 6.1.y LTS 长期支持稳定版
+          * **特性亮点**：
+            - ✅ 极简轻量化，待机内存占用仅 ~100MB
+            - ✅ 内置 Docker 容器与 Home Assistant 支持
+            - ✅ 内置 Hysteria 2 / Xray 透明代理与多线程 CF 优选自愈看门狗
+            - ✅ 开机即自带 N1 OS 掌上控制台 Web 门户
+            - ✅ 开机预置 SSH 密钥免密登录，默认 IP：`192.168.1.149`
+          * **刷机说明**：
+            1. 下载下方 `.img.gz` 文件并解压得到 `.img`
+            2. 使用 Rufus 将 `.img` 写入 U 盘 (≥4GB)
+            3. 将 U 盘插入 N1 靠近 HDMI 口的 USB，接通电源即可启动！
+        files: ${{ env.PACKAGED_OUTPUTPATH }}/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

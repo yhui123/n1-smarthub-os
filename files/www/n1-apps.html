@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>N1 服务入口</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --line:#e3e8ee; --txt:#1f2733; --sub:#6b7686;
+    --accent:#2f6fed; --accent2:#12a05c; --warn:#e0860a; --danger:#d64545;
+    --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --card:#1b2129; --line:#2b333d; --txt:#e6ebf2; --sub:#95a1b2;
+      --accent:#5b95ff; --accent2:#3ecf8e; --warn:#f0a83c; --danger:#f07070;
+      --shadow:0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.55}
+  .wrap{max-width:900px;margin:0 auto;padding:16px 14px 40px}
+
+  header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  h1{font-size:18px;font-weight:600;margin:0}
+  .spacer{flex:1}
+  .net{font-size:11.5px;padding:2px 9px;border-radius:20px;
+    background:color-mix(in srgb,var(--accent2) 16%,transparent);color:var(--accent2)}
+  .net.wan{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+  .sub{color:var(--sub);font-size:12px;margin:0 0 14px}
+
+  h2.sec{font-size:13px;font-weight:600;color:var(--sub);margin:18px 0 8px;letter-spacing:.3px}
+
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  @media(min-width:760px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  .app{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px;
+    box-shadow:var(--shadow);display:flex;gap:11px;align-items:flex-start;text-decoration:none;color:inherit}
+  .app:active{transform:scale(.985)}
+  .app .ic{width:42px;height:42px;border-radius:11px;background:var(--bg);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto}
+  .app .mid{flex:1;min-width:0}
+  .app .nm{font-weight:600;font-size:14px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .app .ds{color:var(--sub);font-size:11.5px;margin-top:2px;
+    overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+  .tag{font-size:10.5px;padding:1px 7px;border-radius:20px;font-weight:500;
+    background:var(--bg);border:1px solid var(--line);color:var(--sub)}
+  .tag.ok{background:color-mix(in srgb,var(--accent2) 16%,transparent);color:var(--accent2);border-color:transparent}
+  .tag.bad{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger);border-color:transparent}
+  .tag.lock{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn);border-color:transparent}
+  .app.lock{opacity:.62}
+
+  .tip{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--warn);
+    border-radius:10px;padding:10px 12px;font-size:12.5px;color:var(--sub);margin-top:10px}
+  .hint{color:var(--sub);font-size:12.5px;text-align:center;padding:18px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>N1 服务入口</h1>
+    <span class="spacer"></span>
+    <span class="net" id="net">检测中…</span>
+  </header>
+  <p class="sub" id="hostline"></p>
+
+  <h2 class="sec">已安装应用</h2>
+  <div class="grid" id="apps"><div class="hint">加载中…</div></div>
+  <div id="tip"></div>
+
+  <h2 class="sec">盒子管理</h2>
+  <div class="grid" id="builtin"></div>
+
+  <h2 class="sec">代理</h2>
+  <div class="grid" id="proxyApps"></div>
+</div>
+
+<script>
+(function(){
+  var P = new URLSearchParams(location.search);
+  var TOKEN = P.get('token') || '';
+  try { if (!TOKEN) TOKEN = localStorage.getItem('n1_token') || 'd1d20aec7451ab4ebbfb1e6dfe11f22b'; } catch(e){}
+  if (P.get('token')) { try { localStorage.setItem('n1_token', P.get('token')); } catch(e){} }
+
+  var LANRE = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/;
+  var HOST = location.hostname;
+  var PORT = location.port ? (':' + location.port) : '';
+  var isLan = LANRE.test(HOST);
+  var BASE = location.protocol + '//' + HOST + PORT;
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function el(id){ return document.getElementById(id); }
+  function tk(){ return TOKEN ? ('?token=' + encodeURIComponent(TOKEN)) : ''; }
+  function urlOf(p){ return BASE + p + (p.indexOf('?')>=0 ? '&' : '?') + (TOKEN?('token='+encodeURIComponent(TOKEN)):''); }
+
+  el('net').textContent = isLan ? '局域网' : '公网 (frp)';
+  el('net').className = 'net' + (isLan ? '' : ' wan');
+  el('hostline').textContent = '当前连接：' + BASE +
+    (isLan ? '（可直接访问各应用端口）' : '（已穿透的端口可直接打开，其余需局域网）');
+
+  // 已知应用画像（名称/描述/图标），容器名模糊匹配
+  var PROFILE = [
+    {m:'uptime-kuma', n:'Uptime Kuma', d:'服务可用性监控', i:'📈'},
+    {m:'vaultwarden', n:'Vaultwarden', d:'自托管密码库', i:'🔐'},
+    {m:'syncthing',   n:'Syncthing',   d:'多设备文件同步', i:'🔄'},
+    {m:'homeassistant',n:'Home Assistant',d:'智能家居', i:'🏠'},
+    {m:'portainer',   n:'Portainer',   d:'Docker 可视化管理', i:'🐳'},
+    {m:'nginx',       n:'Nginx',       d:'Web 服务器', i:'🌐'},
+    {m:'alist',       n:'AList',       d:'网盘聚合', i:'📁'},
+    {m:'jellyfin',    n:'Jellyfin',    d:'影音媒体库', i:'🎬'},
+    {m:'qbittorrent', n:'qBittorrent', d:'下载工具', i:'🧲'},
+    {m:'transmission',n:'Transmission',d:'下载工具', i:'🧲'},
+    {m:'ddns',        n:'DDNS',        d:'动态域名', i:'🌍'},
+    {m:'mysql',       n:'MySQL',       d:'数据库', i:'🗄'},
+    {m:'redis',       n:'Redis',       d:'缓存数据库', i:'⚡'}
+  ];
+  function profile(name){
+    var n = String(name||'').toLowerCase();
+    for (var i=0;i<PROFILE.length;i++) if (n.indexOf(PROFILE[i].m) >= 0) return PROFILE[i];
+    return {n:name, d:'Docker 容器', i:'📦'};
+  }
+
+  function card(icon, name, desc, href, tagHtml, locked){
+    var ext = /^https?:/.test(href) && hostPortOf(href) !== location.host;
+    var oc = '';
+    if (ext) {
+      oc = ' onclick="return openApp(this, ' +
+        JSON.stringify(String(name)).replace(/"/g, '&quot;') + ')"';
+    }
+    return '<a class="app'+(locked?' lock':'')+'" href="' + esc(href) + '"' + oc + '>' +
+      '<div class="ic">' + icon + '</div><div class="mid">' +
+      '<div class="nm">' + esc(name) + (tagHtml || '') + '</div>' +
+      '<div class="ds">' + esc(desc) + '</div></div></a>';
+  }
+
+  function hostPortOf(url){
+    var m = String(url).match(/^https?:\/\/([^\/?#]+)/);
+    return m ? m[1] : '';
+  }
+
+  // 点击应用卡片前先探活：避免直接跳过去看到系统「拒绝连接」错误页
+  function probe(url){
+    return new Promise(function(res){
+      var c = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      var done = false;
+      var t = setTimeout(function(){ done = true; if (c) c.abort(); res(false); }, 3000);
+      var opt = { mode: 'no-cors', cache: 'no-store' };
+      if (c) opt.signal = c.signal;
+      fetch(url, opt).then(function(){
+        if (done) return; clearTimeout(t); res(true);
+      }).catch(function(){
+        if (done) return; clearTimeout(t); res(false);
+      });
+    });
+  }
+
+  window.openApp = function(a, name){
+    var url = a.getAttribute('href');
+    if (!/^https?:/.test(url)) return false;
+    probe(url).then(function(ok){
+      if (ok) { window.location.href = url; return; }
+      var hp = hostPortOf(url);
+      var port = hp.indexOf(':') > 0 ? hp.slice(hp.indexOf(':') + 1) : '80';
+      var isPC = /Windows|Macintosh|Linux/i.test(navigator.userAgent || '');
+      var msg = '打不开 ' + hp + '（' + name + '）\n\n';
+      if (!isLan) {
+        msg += '你现在走的是公网 frp，且手机/电脑不在家里 WiFi，局域网地址 192.168.1.149 本来就到不了。\n';
+        msg += port + ' 端口' + (isPC ? '也' : '') + '没有做公网穿透。\n\n';
+        msg += '解决办法：连上家里 WiFi 后再打开。';
+      } else {
+        msg += '盒子本身是正常的（N1 面板你现在就打开着），但这个端口在浏览器里没连上。\n\n';
+        msg += '最常见原因是浏览器把局域网请求走了代理：\n';
+        msg += '1. 检查浏览器的「系统代理 / 代理扩展 / Clash / SwitchyOmega」，确认 192.168.1.149 是直连\n';
+        msg += '2. 关掉浏览器的「仅 HTTPS / HTTPS-First」模式（Syncthing 与 Vaultwarden 是纯 HTTP）\n';
+        msg += '3. 用无痕窗口（不带扩展）试一次\n';
+        msg += '4. 直接把地址复制到地址栏：' + url;
+      }
+      toast(msg);
+    });
+    return false;
+  };
+
+  // ---------- 盒子管理（走 80 端口，公网也可用） ----------
+  var BUILTIN = [
+    {i:'📟', n:'运行状态', d:'CPU/内存/磁盘/容器总览', p:'/n1-status.html'},
+    {i:'🛠', n:'LuCI 后台', d:'路由器管理界面', p:'/cgi-bin/luci/'},
+    {i:'🧩', n:'iStore 商店', d:'安装与管理插件', p:'/cgi-bin/luci/admin/store'},
+    {i:'🐳', n:'Docker', d:'容器与镜像管理', p:'/cgi-bin/luci/admin/services/dockerman'},
+    {i:'💾', n:'挂载点', d:'硬盘与文件系统', p:'/cgi-bin/luci/admin/system/fstab'},
+    {i:'🌐', n:'网络接口', d:'接口与 DHCP', p:'/cgi-bin/luci/admin/network/network'}
+  ];
+  el('builtin').innerHTML = BUILTIN.map(function(b){
+    return card(b.i, b.n, b.d, urlOf(b.p));
+  }).join('');
+
+  var PROXYAPPS = [
+    {i:'🧭', n:'代理面板', d:'设备 / 流量 / 局域网', p:'/proxy-panel.html'},
+    {i:'📊', n:'健康监控', d:'节点延迟与可用性', p:'/proxy-health.html'},
+    {i:'📶', n:'代理节点', d:'xray 与 hysteria 状态', p:'/cgi-bin/luci/'},
+    {i:'📜', n:'系统日志', d:'排查故障用', p:'/cgi-bin/luci/admin/status/syslog'}
+  ];
+  el('proxyApps').innerHTML = PROXYAPPS.map(function(b){
+    return card(b.i, b.n, b.d, urlOf(b.p));
+  }).join('');
+
+  function staticCard(icon, name, desc, tagHtml, msg){
+    return '<div class="app lock" onclick="(window.__t||function(){})(' +
+      JSON.stringify(String(msg)).replace(/"/g,'&quot;') + ')">' +
+      '<div class="ic">' + icon + '</div><div class="mid">' +
+      '<div class="nm">' + esc(name) + (tagHtml||'') + '</div>' +
+      '<div class="ds">' + esc(desc) + '</div></div></div>';
+  }
+
+  // 轻量提示条（不用 alert：App 的 WebView 默认不弹 alert）
+  var tipBox = document.createElement('div');
+  tipBox.style.cssText = 'position:fixed;left:14px;right:14px;bottom:18px;z-index:99;' +
+    'background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;' +
+    'font-size:12.5px;color:var(--sub);box-shadow:var(--shadow);display:none;' +
+    'white-space:pre-line;line-height:1.5;max-height:60%;overflow:auto';
+  document.body.appendChild(tipBox);
+  var tipTimer = null;
+  function toast(msg){
+    tipBox.textContent = msg;
+    tipBox.style.display = 'block';
+    if (tipTimer) clearTimeout(tipTimer);
+    tipTimer = setTimeout(function(){ tipBox.style.display = 'none'; }, 3200);
+  }
+  window.__t = toast;
+
+  // ---------- 已安装应用（Docker 自动发现） ----------
+  function renderApps(list, pub){
+    if (!list || !list.length){ el('apps').innerHTML = '<div class="hint">没有运行中的容器</div>'; return; }
+    var locked = !isLan;
+    pub = pub || {};
+    el('apps').innerHTML = list.map(function(c){
+      var pf = profile(c.name);
+      var tg = c.up ? '<span class="tag ok">运行中</span>' : '<span class="tag bad">已停止</span>';
+      if (locked && c.port) tg += ' <span class="tag lock">🔒 局域网</span>';
+      var title = pf.d + ' · :' + (c.port || '—');
+      if (!c.up) {
+        return staticCard(pf.i, pf.n, title, tg,
+          '「' + pf.n + '」当前未运行，请先在 Docker 里启动它。');
+      }
+      if (!isLan) {
+        // 公网：查 frp 端口映射表，映射存在就直接走公网端口
+        var rp = c.port ? pub[String(c.port)] : '';
+        if (rp) {
+          tg += ' <span class="tag ok">公网 :' + rp + '</span>';
+          return card(pf.i, pf.n, title, 'http://' + HOST + ':' + rp + '/', tg, false);
+        }
+        return staticCard(pf.i, pf.n, title, tg,
+          '当前走公网 frp，「' + pf.n + '」的 ' + (c.port||'') + ' 端口没有穿透。' +
+          '连上家里 WiFi 后可直连；或让我给该端口加一条 frp 隧道。');
+      }
+      return card(pf.i, pf.n, title, 'http://' + HOST + ':' + c.port + '/', tg, false);
+    }).join('');
+
+    if (!isLan){
+      var keys = [];
+      for (var k in pub) if (pub.hasOwnProperty(k)) keys.push(k);
+      var mapped = list.filter(function(c){ return c.port && pub[String(c.port)]; });
+      var txt = '🌍 当前走公网 frp。已穿透的应用端口：' +
+        (mapped.length ? mapped.map(function(c){
+            return profile(c.name).n + ' ' + c.port + '→' + pub[String(c.port)];
+          }).join('、') : '无');
+      txt += '<br>其余应用需连家里 WiFi 才能直连。';
+      el('tip').innerHTML = '<div class="tip">' + txt + '</div>';
+    } else {
+      el('tip').innerHTML = '';
+    }
+  }
+
+  function load(){
+    var url = '/cgi-bin/n1-status?token=' + encodeURIComponent(TOKEN) + '&_=' + Date.now();
+    fetch(url).then(function(r){ return r.json(); })
+    .then(function(d){
+      var list = (d.docker && d.docker.containers) || [];
+      renderApps(list, d.pub || {});
+    }).catch(function(){
+      el('apps').innerHTML = '<div class="hint">读取容器列表失败</div>';
+    });
+  }
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

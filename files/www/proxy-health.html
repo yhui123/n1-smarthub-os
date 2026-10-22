@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>N1 代理健康面板</title>
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --card2:#eef1f5; --line:#dde2ea;
+  --tx:#1c2330; --tx2:#4b5869; --tx3:#8a96a8;
+  --ok:#16a34a; --warn:#d97706; --err:#dc2626; --info:#2563eb; --acc:#6366f1;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1216; --card:#171b21; --card2:#1e232b; --line:#2a3038;
+    --tx:#e6ebf2; --tx2:#9aa7b8; --tx3:#66748a;
+    --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --info:#60a5fa; --acc:#818cf8;
+  }
+}
+[data-theme="dark"]{
+  --bg:#0f1216; --card:#171b21; --card2:#1e232b; --line:#2a3038;
+  --tx:#e6ebf2; --tx2:#9aa7b8; --tx3:#66748a;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --info:#60a5fa; --acc:#818cf8;
+}
+[data-theme="light"]{
+  --bg:#f4f6f9; --card:#ffffff; --card2:#eef1f5; --line:#dde2ea;
+  --tx:#1c2330; --tx2:#4b5869; --tx3:#8a96a8;
+  --ok:#16a34a; --warn:#d97706; --err:#dc2626; --info:#2563eb; --acc:#6366f1;
+}
+[data-theme="green"]{
+  --bg:#0d1410; --card:#141c17; --card2:#1a241e; --line:#26352c;
+  --tx:#e4efe7; --tx2:#94a99c; --tx3:#5f7568;
+  --ok:#34d399; --warn:#fbbf24; --err:#f87171; --info:#60a5fa; --acc:#10b981;
+}
+[data-theme="purple"]{
+  --bg:#12101a; --card:#191625; --card2:#201c30; --line:#2e2940;
+  --tx:#eae6f7; --tx2:#a49bc2; --tx3:#6e6590;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --info:#a78bfa; --acc:#8b5cf6;
+}
+[data-theme="amber"]{
+  --bg:#181410; --card:#211a13; --card2:#2a2118; --line:#3a2f22;
+  --tx:#f5ece0; --tx2:#b7a68c; --tx3:#7d6f58;
+  --ok:#4ade80; --warn:#fbbf24; --err:#f87171; --info:#60a5fa; --acc:#f59e0b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font:14px/1.6 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;padding:16px;transition:background .3s,color .3s}
+.wrap{max-width:1100px;margin:0 auto}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px}
+h1{font-size:19px;font-weight:600;display:flex;align-items:center;gap:9px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);animation:pulse 2s infinite}
+@keyframes pulse{50%{opacity:.4}}
+.ts{font-size:12px;color:var(--tx3)}
+.bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+button{background:var(--card2);color:var(--tx);border:1px solid var(--line);padding:6px 13px;border-radius:7px;cursor:pointer;font-size:13px;transition:.15s}
+button:hover{filter:brightness(1.2)}
+button.on{background:var(--acc);border-color:var(--acc);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed;filter:none}
+button.danger{background:rgba(248,113,113,.12);border-color:var(--err);color:var(--err)}
+button.danger:hover{background:var(--err);color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:15px;transition:background .3s,border .3s}
+.card h2{font-size:13px;font-weight:600;color:var(--tx2);margin-bottom:12px;display:flex;align-items:center;gap:7px;text-transform:uppercase;letter-spacing:.4px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border-bottom:0}
+.k{color:var(--tx2);font-size:13px}
+.v{font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600}
+.b-ok{background:rgba(74,222,128,.13);color:var(--ok)}
+.b-err{background:rgba(248,113,113,.13);color:var(--err)}
+.b-warn{background:rgba(251,191,36,.13);color:var(--warn)}
+.b-info{background:rgba(96,165,250,.13);color:var(--info)}
+.chain{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0 10px}
+.node{flex:1;min-width:78px;text-align:center;padding:9px 5px;border-radius:9px;border:1px solid var(--line);background:var(--card2);font-size:12px}
+.node .nm{color:var(--tx3);font-size:11px;display:block;margin-bottom:3px}
+.node .st{font-weight:600}
+.node.ok{border-color:rgba(74,222,128,.4)}
+.node.down{border-color:rgba(248,113,113,.4);background:rgba(248,113,113,.07)}
+.arw{color:var(--tx3);font-size:15px;flex:0 0 auto}
+.bars{display:flex;flex-direction:column;gap:9px}
+.barrow{display:flex;align-items:center;gap:9px;font-size:12px}
+.barrow .lbl{width:96px;color:var(--tx2);flex:0 0 auto}
+.track{flex:1;height:6px;background:var(--card2);border-radius:4px;overflow:hidden}
+.fill{height:100%;border-radius:4px;background:var(--acc);transition:width .5s}
+.fill.g{background:linear-gradient(90deg,var(--ok),var(--info))}
+.fill.y{background:linear-gradient(90deg,var(--warn),var(--acc))}
+.barrow .val{width:62px;text-align:right;font-variant-numeric:tabular-nums;flex:0 0 auto;color:var(--tx)}
+.pb{display:flex;justify-content:space-between;padding:8px 10px;background:var(--card2);border-radius:8px;margin-bottom:7px;font-size:13px;align-items:center}
+.pb:last-child{margin-bottom:0}
+.pb .h{color:var(--tx2)}
+.pb .rt{display:flex;gap:10px;align-items:center}
+.spin{width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err-tip{color:var(--err);font-size:12px;padding:8px;text-align:center}
+.themes{display:flex;gap:6px;flex-wrap:wrap}
+.sw{width:24px;height:24px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0;transition:.15s}
+.sw:hover{transform:scale(1.18)}
+.sw.act{border-color:var(--tx);box-shadow:0 0 0 2px var(--acc)}
+.sw.dark{background:#171b21}.sw.light{background:#f4f6f9}.sw.green{background:#141c17}.sw.purple{background:#191625}.sw.amber{background:#211a13}
+.ctl-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;gap:10px;flex-wrap:wrap}
+.ctl-row .desc{flex:1;min-width:140px}
+.ctl-row .desc .t{font-weight:600;font-size:13px}
+.ctl-row .desc .s{font-size:11px;color:var(--tx3)}
+.ctl-btns{display:flex;gap:6px;flex-wrap:wrap}
+.mode-seg{display:grid;grid-template-columns:repeat(3,minmax(76px,1fr));gap:6px;width:100%;margin-top:4px}
+.mode-seg button{border:1px solid var(--line);border-radius:7px;padding:7px 8px;text-align:center;font-size:12px;white-space:nowrap}
+.mode-seg button.act{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line);color:var(--tx);padding:10px 20px;border-radius:9px;font-size:13px;opacity:0;transition:opacity .25s;pointer-events:none;z-index:99}
+.toast.show{opacity:1}
+.rate-big{display:flex;gap:9px;margin-bottom:10px}
+.rb{flex:1;background:var(--card2);border-radius:9px;padding:9px 10px;text-align:center;min-width:0}
+.rb .l{font-size:11px;color:var(--tx3);display:block;margin-bottom:2px}
+.rb .n{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+canvas.spark{width:100%;height:52px;display:block;margin:2px 0 8px}
+.trendlbl{font-size:11px;color:var(--tx3);margin-bottom:4px;display:flex;justify-content:space-between}
+@media(max-width:560px){
+  body{padding:12px 10px}
+  h1{font-size:17px}
+  .grid{grid-template-columns:1fr;gap:10px}
+  .barrow .lbl{width:74px}
+  .card{padding:12px;border-radius:10px}
+  .node{min-width:64px;padding:8px 4px;font-size:11px}
+  .pb{font-size:12px;padding:7px 9px}
+  .pb .rt{gap:7px}
+  button{padding:6px 10px;font-size:12px}
+  .badge{font-size:11px;padding:2px 7px}
+  .rb .n{font-size:14px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="dot" id="hdot"></span>N1 代理健康面板</h1>
+    <div class="bar">
+      <div class="themes" id="themes">
+        <span class="sw dark" data-t="dark" title="深色"></span>
+        <span class="sw light" data-t="light" title="浅色"></span>
+        <span class="sw green" data-t="green" title="墨绿"></span>
+        <span class="sw purple" data-t="purple" title="紫色"></span>
+        <span class="sw amber" data-t="amber" title="暖棕"></span>
+      </div>
+      <span class="ts" id="ts">加载中…</span>
+      <button id="auto" class="on">自动刷新</button>
+      <button id="rf">刷新</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h2>出口控制</h2>
+      <div id="ctl"></div>
+    </div>
+
+    <div class="card">
+      <h2>内核状态</h2>
+      <div id="core"></div>
+    </div>
+
+    <div class="card">
+      <h2>出口链路</h2>
+      <div id="chain"></div>
+    </div>
+
+    <div class="card">
+      <h2>服务器</h2>
+      <div id="server"></div>
+    </div>
+
+    <div class="card">
+      <h2>连接统计</h2>
+      <div id="conn"></div>
+    </div>
+
+    <div class="card">
+      <h2>实时速率</h2>
+      <div id="rate"><div class="err-tip">等待数据…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>系统资源</h2>
+      <div id="sys"></div>
+    </div>
+
+    <div class="card">
+      <h2>实时测速 <span id="probeState" style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0"></span></h2>
+      <div id="probe"><div class="err-tip">点击「刷新」开始测速</div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:13px">
+    <h2>配置文件 <span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0" id="confState"></span></h2>
+    <div class="ctl-row">
+      <div class="desc">
+        <select id="confSel" style="background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:7px;padding:7px 10px;font-size:13px;min-width:220px"></select>
+      </div>
+      <div class="ctl-btns">
+        <button id="confLoad">加载</button>
+        <button id="confSave" class="on">保存并应用</button>
+      </div>
+    </div>
+    <textarea id="confBox" spellcheck="false" style="width:100%;height:360px;background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:9px;padding:12px;font:12px/1.55 'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;resize:vertical;white-space:pre;overflow:auto"></textarea>
+    <div style="margin-top:8px;font-size:11px;color:var(--tx3)" id="confPath"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '/cgi-bin/proxy-health';
+const CTL = '/cgi-bin/proxy-health-ctl';
+/* --- 面板访问令牌：优先取 URL ?token=（LuCI iframe 注入），存 localStorage 复用 --- */
+const PTOKEN = (function(){
+  try{
+    var t = new URLSearchParams(location.search).get('token');
+    if(t){ localStorage.setItem('n1-panel-token', t); return t; }
+    return localStorage.getItem('n1-panel-token') || 'd1d20aec7451ab4ebbfb1e6dfe11f22b';
+  }catch(e){ return ''; }
+})();
+/* uhttpd 不向 CGI 传自定义 HTTP 头，token 统一走 URL query */
+const AUTH_QS = 'token=' + encodeURIComponent(PTOKEN);
+let autoTimer = null;
+
+function $(id){ return document.getElementById(id); }
+function jstr(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function toast(msg){
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._h);
+  t._h = setTimeout(()=>t.classList.remove('show'), 2600);
+}
+
+function fmtBytes(b){
+  b = Number(b)||0;
+  if(b < 1024) return b + ' B';
+  if(b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if(b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+function fmtUp(s){
+  s = Number(s)||0;
+  const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+  if(d) return d+' 天 '+h+' 小时';
+  if(h) return h+' 小时 '+m+' 分';
+  return m+' 分';
+}
+function badge(ok, txtOk, txtBad){
+  return ok ? '<span class="badge b-ok">● '+txtOk+'</span>' : '<span class="badge b-err">● '+txtBad+'</span>';
+}
+
+async function get(type){
+  const r = await fetch(API + '?type=' + type + '&' + AUTH_QS, {cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+async function ctlAction(qs){
+  const r = await fetch(CTL + '?' + qs + '&' + AUTH_QS, {cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+/* ---------- 主题切换 ---------- */
+function applyTheme(t, save = true){
+  document.body.setAttribute('data-theme', t);
+  document.querySelectorAll('.sw').forEach(s=>s.classList.toggle('act', s.dataset.t===t));
+  if (save && !IS_EMBED) {
+    try{ localStorage.setItem('n1-health-theme', t); }catch(e){}
+  }
+}
+document.querySelectorAll('.sw').forEach(s=>{ s.onclick = ()=>applyTheme(s.dataset.t); });
+
+/* ---------- 控制区 ---------- */
+const MODE_LIST = [
+  { id: 'hysteria', label: '🇺🇸美专线·Hy2' },
+  { id: 'reality',  label: '🇺🇸美专线·Reality' },
+  { id: 'cf-us',    label: '☁️CF美' },
+  { id: 'cf-jp',    label: '☁️CF日' },
+  { id: 'cf-sg',    label: '☁️CF新' },
+  { id: 'cf-hk',    label: '☁️CF港' }
+];
+let curMode = null;
+let svcState = {xray:'running', hysteria:'running'};
+async function renderCtl(){
+  try{
+    const d = await ctlAction('action=status');
+    curMode = d.mode;
+    if(d.services){ svcState = d.services; }
+    const h = [];
+    const segBtns = MODE_LIST.map(o =>
+      '<button class="'+(d.mode===o.id?'act':'')+'" data-mode="'+o.id+'" style="padding:5px 9px;font-size:12px">'+o.label+'</button>'
+    ).join('');
+    h.push('<div class="ctl-row"><div class="desc"><div class="t">全局默认出口</div><div class="s">未单独指定节点的设备默认走此出口</div></div>'+
+      '<div class="mode-seg" style="flex-wrap:wrap">'+
+      segBtns +
+      '</div></div>');
+    // xray 服务：启动/停止/重启
+    const xr = svcState.xray === 'running';
+    h.push('<div class="ctl-row"><div class="desc"><div class="t">xray 服务</div><div class="s">'+
+      (xr?'<span class="badge b-ok">运行中</span>':'<span class="badge b-err">已停止</span>')+
+      '</div></div><div class="ctl-btns">'+
+      '<button id="xstart"'+(xr?' disabled':'')+'>启动</button>'+
+      '<button id="xstop"'+(xr?'':' disabled')+' class="danger">停止</button>'+
+      '<button id="xrestart">重启</button></div></div>');
+    // hysteria 服务
+    const hr = svcState.hysteria === 'running';
+    h.push('<div class="ctl-row"><div class="desc"><div class="t">hysteria 服务</div><div class="s">'+
+      (hr?'<span class="badge b-ok">运行中</span>':'<span class="badge b-err">已停止</span>')+
+      '</div></div><div class="ctl-btns">'+
+      '<button id="hstart"'+(hr?' disabled':'')+'>启动</button>'+
+      '<button id="hstop"'+(hr?'':' disabled')+' class="danger">停止</button>'+
+      '<button id="hrestart">重启</button></div></div>');
+    h.push('<div class="ctl-row"><div class="desc"><div class="t">清理 DNS 缓存</div><div class="s">无副作用，域名解析异常时用</div></div>'+
+      '<div class="ctl-btns"><button id="df">清理</button></div></div>');
+    $('ctl').innerHTML = h.join('');
+
+    $('ctl').querySelectorAll('[data-mode]').forEach(btn => {
+      btn.onclick = ()=>{ const m = btn.getAttribute('data-mode'); if(curMode!==m) switchMode(m); };
+    });
+    $('xstart').onclick = ()=> doStart('xray');
+    $('xstop').onclick  = ()=>{ if(confirm('确定停止 xray？停止后所有代理将不可用')) doStop('xray'); };
+    $('xrestart').onclick = ()=>{ if(confirm('确定重启 xray？会短暂断网约 2-4 秒')) doRestart('xray'); };
+    $('hstart').onclick = ()=> doStart('hysteria');
+    $('hstop').onclick  = ()=>{ if(confirm('确定停止 hysteria？停止后 UDP 隧道断开')) doStop('hysteria'); };
+    $('hrestart').onclick = ()=>{ if(confirm('确定重启 hysteria？会短暂断网约 2-4 秒')) doRestart('hysteria'); };
+    $('df').onclick = doDnsFlush;
+  }catch(e){
+    $('ctl').innerHTML = '<div class="err-tip">控制接口加载失败: '+jstr(e.message)+'</div>';
+  }
+}
+
+async function switchMode(m){
+  const item = MODE_LIST.find(x => x.id === m);
+  const label = item ? item.label : m;
+  toast('正在切换到 '+label+' …');
+  try{
+    const d = await ctlAction('action=switch&mode='+m);
+    if(d.ok){ toast('已切换到 '+label); curMode = d.mode; }
+    else toast('切换失败: '+jstr(d.error||''));
+  }catch(e){ toast('切换失败: '+jstr(e.message)); }
+  renderCtl(); refresh();
+}
+async function doRestart(s){
+  toast('正在重启 '+s+' …');
+  try{
+    const d = await ctlAction('action=restart&svc='+s);
+    toast(d.ok ? (s+' 已重启') : ('失败: '+jstr(d.error||'')));
+    if(d.services) svcState = d.services;
+  }catch(e){ toast('重启失败: '+jstr(e.message)); }
+  renderCtl(); refresh();
+}
+async function doStop(s){
+  toast('正在停止 '+s+' …');
+  try{
+    const d = await ctlAction('action=stop&svc='+s);
+    toast(d.ok ? (s+' 已停止') : ('失败: '+jstr(d.error||'')));
+    if(d.services) svcState = d.services;
+  }catch(e){ toast('停止失败: '+jstr(e.message)); }
+  renderCtl(); refresh();
+}
+async function doStart(s){
+  toast('正在启动 '+s+' …');
+  try{
+    const d = await ctlAction('action=start&svc='+s);
+    toast(d.ok ? (s+' 已启动') : ('失败: '+jstr(d.error||'')));
+    if(d.services) svcState = d.services;
+  }catch(e){ toast('启动失败: '+jstr(e.message)); }
+  renderCtl(); refresh();
+}
+async function doDnsFlush(){
+  try{
+    const d = await ctlAction('action=dnsflush');
+    toast(d.ok ? 'DNS 缓存已清理' : '清理失败');
+  }catch(e){ toast('清理失败: '+jstr(e.message)); }
+}
+
+/* ---------- 配置文件查看/编辑 ---------- */
+let confFiles = [];
+let confCur = null;
+async function loadConfFiles(){
+  try{
+    const d = await ctlAction('action=files');
+    if(!d.ok) return;
+    confFiles = d.files;
+    const sel = $('confSel');
+    sel.innerHTML = d.files.map(f=>'<option value="'+f.key+'">'+f.key+' — '+jstr(f.desc)+' ('+f.size+'B)</option>').join('');
+    if(d.files.length) loadConf(d.files[0].key);
+  }catch(e){
+    $('confSel').innerHTML = '<option>加载失败</option>';
+  }
+}
+async function loadConf(key){
+  $('confState').innerHTML = '<span class="spin"></span>';
+  try{
+    const d = await ctlAction('action=read&file='+key);
+    if(d.ok){
+      confCur = d.key;
+      $('confBox').value = d.content.replace(/\\n/g, '\n');
+      $('confPath').textContent = d.path;
+      $('confState').innerHTML = '';
+    }else{
+      $('confState').innerHTML = '<span style="color:var(--err)">'+jstr(d.error||'')+'</span>';
+    }
+  }catch(e){
+    $('confState').innerHTML = '<span style="color:var(--err)">加载失败</span>';
+  }
+}
+async function saveConf(){
+  if(!confCur){ toast('请先选择一个配置文件'); return; }
+  const content = $('confBox').value;
+  $('confState').innerHTML = '<span class="spin"></span>';
+  try{
+    const r = await fetch(CTL + '?action=save&file=' + confCur + '&' + AUTH_QS, {
+      method:'POST',
+      cache:'no-store',
+      body: content
+    });
+    const d = await r.json();
+    if(d.ok){
+      $('confState').innerHTML = '';
+      toast('已保存并应用');
+    }else{
+      $('confState').innerHTML = '<span style="color:var(--err)">'+jstr(d.error||'保存失败')+'</span>';
+      toast('保存失败：校验未通过');
+    }
+  }catch(e){
+    $('confState').innerHTML = '<span style="color:var(--err)">保存失败: '+jstr(e.message)+'</span>';
+  }
+  refresh();
+}
+
+$('confLoad').onclick = ()=>{ const k=$('confSel').value; if(k) loadConf(k); };
+$('confSave').onclick = ()=>{ if(confirm('确定保存并应用配置？保存前会校验，失败自动回滚')) saveConf(); };
+$('confSel').onchange = ()=>{ const k=$('confSel').value; if(k) loadConf(k); };
+
+/* ---------- 内核状态 ---------- */
+function renderCore(d){
+  const rows = [];
+  const add = (name, o) => {
+    const ok = o.status === 'running';
+    rows.push('<div class="row"><span class="k">'+name+'</span>'+
+      (ok ? '<span class="badge b-ok">● 运行中</span>' : '<span class="badge b-err">● 已停止</span>')+'</div>');
+    if(ok){
+      rows.push('<div class="row"><span class="k">PID / CPU</span><span class="v">'+jstr(o.pid)+' / '+(Number(o.cpu_pct)||0)+'%</span></div>');
+      rows.push('<div class="row"><span class="k">内存 / 线程</span><span class="v">'+o.mem_mb+' MB / '+(Number(o.threads)||0)+'</span></div>');
+      rows.push('<div class="row"><span class="k">FD 数 / 已运行</span><span class="v">'+(Number(o.fds)||0)+' / '+fmtUp(o.runtime_s)+'</span></div>');
+      rows.push('<div class="row"><span class="k">启动于</span><span class="v">'+jstr(o.start)+'</span></div>');
+      if(o.version) rows.push('<div class="row"><span class="k">版本</span><span class="v">v'+jstr(o.version)+'</span></div>');
+    }
+  };
+  add('xray', d.xray);
+  add('hysteria', d.hysteria);
+  $('core').innerHTML = rows.join('');
+}
+
+/* ---------- 出口链路 ---------- */
+function renderChain(d){
+  const seg = [
+    {nm:'xray 入站', port:'10808', st:d.in_10808},
+    {nm:'xray socks', port:'1080', st:d.xray_socks},
+    {nm:'hysteria', port:'10809', st:d.hysteria_10809}
+  ];
+  let h = '<div class="chain">';
+  seg.forEach(s=>{
+    const ok = s.st === 'ok';
+    h += '<div class="node '+(ok?'ok':'down')+'"><span class="nm">'+s.nm+'</span>'+
+         '<span class="st">'+(ok?'✓':'✗')+'</span><span class="nm" style="margin:2px 0 0">:'+s.port+'</span></div><span class="arw">→</span>';
+  });
+  h += '<div class="node ok"><span class="nm">服务器</span><span class="st">☁</span></div></div>';
+  const allOk = d.in_10808==='ok' && d.xray_socks==='ok' && d.hysteria_10809==='ok';
+  h += '<div class="row"><span class="k">链路整体</span>'+badge(allOk,'通畅','异常')+'</div>';
+  h += '<div class="row"><span class="k">出口端点</span><span class="v">'+jstr(d.server)+'</span></div>';
+  $('chain').innerHTML = h;
+}
+
+/* ---------- 服务器 ---------- */
+function renderServer(d){
+  const ok = d.reachable === 'ok';
+  let h = '';
+  h += '<div class="row"><span class="k">地址</span><span class="v">'+jstr(d.addr)+'</span></div>';
+  h += '<div class="row"><span class="k">端口</span><span class="v">'+d.port+' (UDP/TCP)</span></div>';
+  h += '<div class="row"><span class="k">可达性</span>'+badge(ok,'可达','不可达')+'</div>';
+  if(ok){
+    const ping = d.rtt_ms < 200 ? 'b-ok' : (d.rtt_ms < 600 ? 'b-warn' : 'b-err');
+    h += '<div class="row"><span class="k">响应延迟</span><span class="badge '+ping+'">'+d.rtt_ms+' ms</span></div>';
+  }
+  $('server').innerHTML = h;
+}
+
+/* ---------- 连接统计 ---------- */
+function renderConn(d){
+  const maxConn = Math.max(d.active, 200);
+  let h = '<div class="bars">';
+  const bar = (lbl, val, pct, cls) => {
+    h += '<div class="barrow"><span class="lbl">'+lbl+'</span>'+
+         '<span class="track"><span class="fill '+(cls||'')+'" style="width:'+Math.min(pct,100)+'%"></span></span>'+
+         '<span class="val">'+val+'</span></div>';
+  };
+  bar('活跃连接', d.active, d.active/maxConn*100, 'g');
+  bar('已建立', d.established, d.established/maxConn*100, '');
+  bar('去服务器', d.to_server, d.to_server/maxConn*100, 'y');
+  h += '</div>';
+  h += '<div class="row" style="margin-top:12px"><span class="k">上行累计</span><span class="v">'+fmtBytes(d.up_bytes)+'</span></div>';
+  h += '<div class="row"><span class="k">下行累计</span><span class="v">'+fmtBytes(d.down_bytes)+'</span></div>';
+  h += '<div class="row"><span class="k">系统总连接</span><span class="v">'+(Number(d.sys_total)||0)+'</span></div>';
+  h += '<div class="row"><span class="k">整机 TCP 已建立</span><span class="v">'+(Number(d.tcp_est)||0)+'</span></div>';
+  $('conn').innerHTML = h;
+}
+
+/* ---------- 实时速率 ---------- */
+function fmtSpeed(bps){
+  bps = Number(bps)||0;
+  if(bps < 1024) return bps.toFixed(0) + ' B/s';
+  if(bps < 1048576) return (bps/1024).toFixed(1) + ' KB/s';
+  return (bps/1048576).toFixed(2) + ' MB/s';
+}
+function drawSpark(cv, data){
+  if(!cv || !data || !data.length) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth || 200, hgt = cv.clientHeight || 52;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr);
+  const ctx = cv.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const st = getComputedStyle(document.body);
+  const col = (st.getPropertyValue('--info') || '#60a5fa').trim();
+  const max = Math.max.apply(null, data.concat([1024]));
+  const pad = 3, n = data.length;
+  const px = i => n < 2 ? w/2 : pad + i*(w-2*pad)/(n-1);
+  const py = v => hgt - pad - (v/max)*(hgt-2*pad-2);
+  ctx.beginPath();
+  ctx.moveTo(px(0), py(data[0]));
+  for(let i=1;i<n;i++) ctx.lineTo(px(i), py(data[i]));
+  ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.lineTo(px(n-1), hgt); ctx.lineTo(px(0), hgt); ctx.closePath();
+  const grd = ctx.createLinearGradient(0,0,0,hgt);
+  grd.addColorStop(0, col+'55'); grd.addColorStop(1, col+'00');
+  ctx.fillStyle = grd; ctx.fill();
+  ctx.beginPath(); ctx.arc(px(n-1), py(data[n-1]), 2.4, 0, Math.PI*2);
+  ctx.fillStyle = col; ctx.fill();
+}
+function renderRate(d){
+  const hist = d.hist || [];
+  const peak = hist.reduce((m,p)=>Math.max(m, Number(p[1])||0), 0);
+  let h = '<div class="rate-big">'+
+    '<div class="rb"><span class="l">代理下行 ↓</span><span class="n" style="color:var(--info)">'+fmtSpeed(d.proxy_down_bps)+'</span></div>'+
+    '<div class="rb"><span class="l">代理上行 ↑</span><span class="n" style="color:var(--acc)">'+fmtSpeed(d.proxy_up_bps)+'</span></div>'+
+    '</div>';
+  h += '<div class="trendlbl"><span>下行趋势 · 最近 '+hist.length+' 次采样</span><span>峰值 '+fmtSpeed(peak)+'</span></div>';
+  h += '<canvas class="spark" id="spark"></canvas>';
+  h += '<div class="row"><span class="k">网口 '+jstr(d.dev)+' 收 / 发</span><span class="v">'+fmtSpeed(d.eth0_rx_bps)+' / '+fmtSpeed(d.eth0_tx_bps)+'</span></div>';
+  h += '<div class="row"><span class="k">采样间隔</span><span class="v">'+(Number(d.interval_s)||0)+' s</span></div>';
+  $('rate').innerHTML = h;
+  drawSpark($('spark'), hist.map(p=>Number(p[1])||0));
+}
+
+/* ---------- 系统资源 ---------- */
+function renderSys(d, rate){
+  const memPct = d.mem_total ? (d.mem_used/d.mem_total*100) : 0;
+  const diskPct = d.disk_total ? (d.disk_used/d.disk_total*100) : 0;
+  const cpuPct = rate ? (Number(rate.cpu_pct)||0) : 0;
+  let h = '<div class="bars">';
+  const bar = (lbl, val, pct, cls) => {
+    h += '<div class="barrow"><span class="lbl">'+lbl+'</span>'+
+         '<span class="track"><span class="fill '+(cls||'')+'" style="width:'+Math.min(pct,100)+'%"></span></span>'+
+         '<span class="val">'+val+'</span></div>';
+  };
+  bar('CPU', cpuPct+'%', cpuPct, cpuPct<60?'g':(cpuPct<85?'y':''));
+  bar('内存', d.mem_used+'/'+d.mem_total+'M', memPct, memPct<60?'g':(memPct<85?'y':''));
+  bar('磁盘', d.disk_used+'/'+d.disk_total+'M', diskPct, diskPct<60?'g':(diskPct<85?'y':''));
+  h += '</div>';
+  const t = Number(d.temp)||0;
+  const tcls = t>=70?'b-err':(t>=55?'b-warn':'b-ok');
+  h += '<div class="row" style="margin-top:12px"><span class="k">CPU 温度</span><span class="badge '+tcls+'">'+t+' °C</span></div>';
+  h += '<div class="row"><span class="k">CPU 频率</span><span class="v">'+(Number(d.freq_mhz)||0)+' MHz × '+(Number(d.cores)||0)+' 核</span></div>';
+  h += '<div class="row"><span class="k">主机名</span><span class="v">'+jstr(d.hostname)+'</span></div>';
+  h += '<div class="row"><span class="k">负载 (1/5/15分)</span><span class="v">'+d.load.join(' / ')+'</span></div>';
+  h += '<div class="row"><span class="k">运行时长</span><span class="v">'+fmtUp(d.uptime_s)+'</span></div>';
+  $('sys').innerHTML = h;
+}
+
+/* ---------- 实时测速 ---------- */
+async function renderProbe(){
+  $('probeState').innerHTML = '<span class="spin"></span>';
+  $('probe').innerHTML = '<div class="err-tip">测速中，请稍候…</div>';
+  try{
+    const d = await get('probe');
+    if(!d.results || !d.results.length){ $('probe').innerHTML = '<div class="err-tip">无数据</div>'; return; }
+    $('probe').innerHTML = d.results.map(r=>{
+      const ok = r.code === '200';
+      const t = parseFloat(r.time)||0;
+      const cls = !ok ? 'b-err' : (t<3?'b-ok':(t<7?'b-warn':'b-err'));
+      const cn = { 'www.google.com':'Google', 'github.com':'GitHub', 'www.youtube.com':'YouTube', 'www.cloudflare.com':'Cloudflare' }[r.host] || r.host;
+      return '<div class="pb"><span class="h">'+cn+'</span>'+
+        '<span class="rt"><span class="badge '+cls+'">'+r.code+'</span>'+
+        '<span class="v">'+t.toFixed(2)+'s</span></span></div>';
+    }).join('');
+  }catch(e){
+    $('probe').innerHTML = '<div class="err-tip">测速失败: '+jstr(e.message)+'</div>';
+  }finally{
+    $('probeState').innerHTML = '';
+  }
+}
+
+/* ---------- 主刷新 ---------- */
+async function refresh(){
+  try{
+    const d = await get('all');
+    renderCore(d.core);
+    renderChain(d.chain);
+    renderServer(d.server);
+    renderConn(d.conn);
+    if(d.rate) renderRate(d.rate);
+    renderSys(d.sys, d.rate);
+    $('ts').textContent = d.ts;
+    const allOk = d.core.xray.status==='running' && d.core.hysteria.status==='running'
+                  && d.chain.in_10808==='ok' && d.server.reachable==='ok';
+    const dot = $('hdot');
+    dot.style.background = allOk ? 'var(--ok)' : 'var(--err)';
+    dot.style.boxShadow = '0 0 8px ' + (allOk ? 'var(--ok)' : 'var(--err)');
+  }catch(e){
+    $('ts').textContent = '刷新失败: ' + e.message;
+    $('hdot').style.background = 'var(--err)';
+  }
+}
+
+$('rf').onclick = ()=>{ refresh(); renderProbe(); };
+$('auto').onclick = function(){
+  if(autoTimer){ clearInterval(autoTimer); autoTimer=null; this.classList.remove('on'); this.textContent='自动刷新'; }
+  else { autoTimer = setInterval(refresh, 5000); this.classList.add('on'); this.textContent='自动刷新中'; }
+};
+
+const IS_EMBED = new URLSearchParams(location.search).get('embed') === '1';
+const URL_THEME = new URLSearchParams(location.search).get('theme');
+
+function detectParentTheme() {
+  if (!IS_EMBED) return null;
+  try {
+    if (window.parent && window.parent.document && window.parent.document.body) {
+      const pDoc = window.parent.document;
+      const pDataTheme = pDoc.body.getAttribute('data-theme') || pDoc.documentElement.getAttribute('data-theme');
+      if (pDataTheme && ['light','dark','green','purple','amber'].includes(pDataTheme)) {
+        return pDataTheme;
+      }
+      const parentBg = window.parent.getComputedStyle(pDoc.body).backgroundColor;
+      const m = parentBg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        const r = parseInt(m[1]), g = parseInt(m[2]), b = parseInt(m[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        return brightness < 128 ? 'dark' : 'light';
+      }
+    }
+  } catch(e) {}
+  return null;
+}
+
+if (IS_EMBED) {
+  const pTheme = detectParentTheme();
+  if (pTheme) {
+    applyTheme(pTheme, false);
+  } else if (URL_THEME && ['light','dark','green','purple','amber'].includes(URL_THEME)) {
+    applyTheme(URL_THEME, false);
+  } else {
+    const sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    applyTheme(sysDark ? 'dark' : 'light', false);
+  }
+} else if (URL_THEME && ['light','dark','green','purple','amber'].includes(URL_THEME)) {
+  applyTheme(URL_THEME);
+} else {
+  try{
+    const saved = localStorage.getItem('n1-health-theme');
+    if(saved) applyTheme(saved);
+    else {
+      const sysDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      applyTheme(sysDark ? 'dark' : 'light', false);
+    }
+  }catch(e){}
+}
+
+window.addEventListener('message', e => {
+  if (e.data && e.data.type === 'n1-theme' && e.data.theme) {
+    applyTheme(e.data.theme, false);
+  }
+});
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    if (IS_EMBED) {
+      const pt = detectParentTheme();
+      applyTheme(pt || (e.matches ? 'dark' : 'light'), false);
+    }
+  });
+}
+
+if(IS_EMBED){
+  const hdr = document.querySelector('header');
+  if(hdr) hdr.style.display = 'none';
+  document.body.style.padding = '0';
+  document.body.style.background = 'transparent';
+  
+  const syncWithParent = () => {
+    const pt = detectParentTheme();
+    if (pt && document.body.getAttribute('data-theme') !== pt) {
+      applyTheme(pt, false);
+    }
+    try{ window.parent.postMessage({type:'n1-health-height', height: document.documentElement.scrollHeight}, '*'); }catch(e){}
+  };
+  
+  try {
+    if (window.parent && window.parent.document && window.parent.document.body) {
+      new MutationObserver(syncWithParent).observe(window.parent.document.body, {attributes: true, attributeFilter: ['style', 'class', 'data-theme']});
+    }
+  } catch(e) {}
+  
+  new MutationObserver(syncWithParent).observe(document.body, {childList:true, subtree:true});
+  window.addEventListener('resize', syncWithParent);
+  setInterval(syncWithParent, 1500);
+  setTimeout(syncWithParent, 100);
+  setTimeout(syncWithParent, 500);
+}
+
+refresh();
+renderProbe();
+renderCtl();
+loadConfFiles();
+autoTimer = setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+#!/bin/sh
+# N1 SmartHub OS · First Boot Initialization Script
+
+# 1. 基础系统配置
+uci set system.@system[0].hostname='N1-SmartHub'
+uci set system.@system[0].timezone='CST-8'
+uci set system.@system[0].zonename='Asia/Shanghai'
+uci commit system
+
+# 2. 网络静态 IP 配置（保留当前专属 IP，与路由不冲突）
+uci set network.lan.ipaddr='192.168.1.149'
+uci set network.lan.netmask='255.255.255.0'
+uci set network.lan.gateway='192.168.1.1'
+uci set network.lan.dns='119.29.29.29 223.5.5.5'
+uci commit network
+
+# 3. SSH 密钥与目录权限
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+chmod 600 /root/.ssh/authorized_keys 2>/dev/null
+chmod +x /root/*.sh 2>/dev/null
+chmod +x /usr/bin/n1ctl 2>/dev/null
+chmod +x /www/cgi-bin/* 2>/dev/null
+
+# 4. 自动加入后台看门狗定时任务
+mkdir -p /etc/crontabs
+cat << 'EOF' > /etc/crontabs/root
+*/3 * * * * /root/n1-node-watchdog.sh >/dev/null 2>&1
+EOF
+/etc/init.d/cron enable
+/etc/init.d/cron restart
+
+# 5. 确保 FRP 客户端开机自启
+if [ -f /etc/init.d/frpc ]; then
+  /etc/init.d/frpc enable
+  /etc/init.d/frpc restart
+fi
+
+exit 0

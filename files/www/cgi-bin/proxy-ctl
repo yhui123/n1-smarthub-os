@@ -1,0 +1,264 @@
+#!/bin/sh
+# --- panel token auth (2026-10-08) ---
+_PT=$(cat /etc/frp/panel-token 2>/dev/null)
+_TOKOK=0
+[ -n "$_PT" ] && [ "$HTTP_X_PANEL_TOKEN" = "$_PT" ] && _TOKOK=1
+case "$QUERY_STRING" in *"token=$_PT"*) _TOKOK=1 ;; esac
+if [ "$_TOKOK" != "1" ]; then
+  printf 'Status: 401 Forbidden\r\nContent-Type: application/json\r\n\r\n{"error":"unauthorized"}'
+  exit 0
+fi
+# --- end panel token auth ---
+# =====================================================================
+# N1 代理面板 · 管控接口（CGI）
+# 路径: /cgi-bin/proxy-ctl
+# 用法（POST 表单或 GET 查询串均可）：
+#   action=name&ip=192.168.1.150&name=我的电脑
+#   action=block&ip=192.168.1.150
+#   action=unblock&ip=192.168.1.150
+#   action=limit&ip=192.168.1.150&rate=200
+#   action=state                       查看全部管控状态（JSON）
+#
+# 安全：仅允许操作 192.168.1.0/24 内的 IP；只影响代理流量。
+# =====================================================================
+
+PORT=10808
+NAME_FILE="/etc/n1-devices.conf"
+BLOCK_FILE="/etc/n1-block.conf"
+LIMIT_FILE="/etc/n1-limits.conf"
+NODE_FILE="/etc/n1-device-nodes.conf"
+CF_BEST_FILE="/etc/xray/cf-best.conf"
+N1CTL="/usr/bin/n1ctl"
+
+# ---------- 解析参数（POST 或 GET） ----------
+parse_args() {
+  QS="${QUERY_STRING:-}"
+  if [ "$REQUEST_METHOD" = "POST" ]; then
+    BODY=$(cat)
+    case "$BODY" in
+      *"="*) [ -n "$QS" ] && QS="${QS}&${BODY}" || QS="$BODY" ;;
+    esac
+  fi
+}
+
+# urldecode（+ -> 空格，%XX -> 字符），用 awk 保证 UTF-8 安全
+urldecode() {
+  printf '%s' "$1" | awk '
+  {
+    s = $0
+    out = ""
+    n = length(s)
+    for (i = 1; i <= n; i++) {
+      c = substr(s, i, 1)
+      if (c == "+") { out = out " " }
+      else if (c == "%" && i + 2 <= n) {
+        h = substr(s, i+1, 2)
+        v = 0
+        ok = 1
+        for (j = 1; j <= 2; j++) {
+          d = substr(h, j, 1)
+          if      (d ~ /[0-9]/) v = v * 16 + (d + 0)
+          else if (d ~ /[a-fA-F]/) {
+            dd = tolower(d)
+            idx = index("abcdef", dd)
+            v = v * 16 + (idx + 9)
+          } else { ok = 0; break }
+        }
+        if (ok) { out = out sprintf("%c", v); i += 2 }
+        else { out = out c }
+      }
+      else { out = out c }
+    }
+    print out
+  }'
+}
+
+get_param() {
+  # get_param <key>  ; 从 QS 取值并 urldecode
+  v=$(printf '%s' "$QS" | tr '&' '\n' | grep "^$1=" | head -1 | sed "s/^$1=//")
+  urldecode "$v"
+}
+
+# ---------- 校验 ----------
+valid_ip() {
+  case "$1" in
+    192.168.*.*|10.*.*.*) ;;
+    *) return 1 ;;
+  esac
+  case "$1" in
+    *[!0-9.]*) return 1 ;;
+  esac
+  o4=${1##*.}
+  [ -n "$o4" ] && [ "$o4" -ge 1 ] && [ "$o4" -le 254 ] && return 0
+  return 1
+}
+
+jstr() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+
+# ---------- 状态输出 ----------
+emit_state() {
+  printf 'Content-Type: application/json; charset=utf-8\n'
+  printf 'Cache-Control: no-store\n\n'
+  printf '{'
+
+  printf '"names":{'
+  first=1
+  if [ -f "$NAME_FILE" ]; then
+    # 兼容 Tab 与空格两种分隔：第一个字段是 IP，其余整段是名称
+    while read -r _line; do
+      case "$_line" in ''|\#*) continue ;; esac
+      _ip=$(printf '%s' "$_line" | awk '{print $1}')
+      _nm=$(printf '%s' "$_line" | sed 's/^[[:space:]]*[^[:space:]]*[[:space:]]*//')
+      case "$_ip" in ''|' '*) continue ;; esac
+      [ -n "$_ip" ] || continue
+      [ $first -eq 1 ] || printf ','
+      first=0
+      printf '"%s":"%s"' "$(jstr "$_ip")" "$(jstr "$_nm")"
+    done < "$NAME_FILE"
+  fi
+  printf '},'
+
+  printf '"blocked":['; first=1
+  if [ -f "$BLOCK_FILE" ]; then
+    while read -r ip; do
+      case "$ip" in ''|\#*) continue ;; esac
+      [ $first -eq 1 ] || printf ','
+      first=0
+      printf '"%s"' "$(jstr "$ip")"
+    done < "$BLOCK_FILE"
+  fi
+  printf '],'
+
+  printf '"limits":{'; first=1
+  if [ -f "$LIMIT_FILE" ]; then
+    while read -r _line; do
+      case "$_line" in ''|\#*) continue ;; esac
+      _ip=$(printf '%s' "$_line" | awk '{print $1}')
+      _rate=$(printf '%s' "$_line" | awk '{print $2}')
+      case "$_ip" in ''|' '*) continue ;; esac
+      [ -n "$_rate" ] || continue
+      [ $first -eq 1 ] || printf ','
+      first=0
+      printf '"%s":%s' "$(jstr "$_ip")" "$_rate"
+    done < "$LIMIT_FILE"
+  fi
+  printf '},'
+
+  def_node="cf-us"
+  printf '"nodes":{'; first=1
+  if [ -f "$NODE_FILE" ]; then
+    while read -r _line; do
+      case "$_line" in ''|\#*) continue ;; esac
+      _k=$(printf '%s' "$_line" | awk '{print $1}')
+      _v=$(printf '%s' "$_line" | awk '{print $2}')
+      [ -n "$_k" ] && [ -n "$_v" ] || continue
+      if [ "$_k" = "default" ]; then
+        def_node="$_v"
+      else
+        [ $first -eq 1 ] || printf ','
+        first=0
+        printf '"%s":"%s"' "$(jstr "$_k")" "$(jstr "$_v")"
+      fi
+    done < "$NODE_FILE"
+  fi
+  printf '},'
+  printf '"default_node":"%s",' "$(jstr "$def_node")"
+
+  cf_best=$(awk '{print $1":"$2" ("$3")"}' "$CF_BEST_FILE" 2>/dev/null)
+  printf '"cf_best":"%s",' "$(jstr "${cf_best:-104.18.33.134:2087}")"
+
+  cf_mode=$(awk '{print $1}' /etc/xray/cf-sub.conf 2>/dev/null)
+  cf_port=$(awk '{print $2}' /etc/xray/cf-sub.conf 2>/dev/null)
+  printf '"cf_mode":"%s",' "$(jstr "${cf_mode:-generator}")"
+  printf '"cf_port":"%s",' "$(jstr "${cf_port:--1}")"
+
+  # nft 规则原文（给前端显示"已生效"）
+  nft_txt=$(nft list table inet n1ctl 2>/dev/null | grep -c "reject")
+  printf '"nft_rules":%s' "${nft_txt:-0}"
+
+  printf '}\n'
+}
+
+# ---------- 主流程 ----------
+parse_args
+ACTION=$(get_param action)
+IP=$(get_param ip)
+NM=$(get_param name)
+RATE=$(get_param rate)
+NODE=$(get_param node)
+CF_MODE=$(get_param cf_mode)
+CF_PORT=$(get_param cf_port)
+
+if [ ! -x "$N1CTL" ]; then
+  printf 'Content-Type: application/json; charset=utf-8\n\n'
+  printf '{"ok":false,"msg":"n1ctl 未安装"}\n'
+  exit 0
+fi
+
+case "$ACTION" in
+  state) emit_state; exit 0 ;;
+  cf_config_get)
+    cfg=$(/usr/bin/n1-cf-ctl get 2>/dev/null)
+    printf 'Content-Type: application/json; charset=utf-8\nCache-Control: no-store\n\n'
+    if [ -n "$cfg" ]; then
+      printf '{"ok":true,"config":%s}\n' "$cfg"
+    else
+      printf '{"ok":false,"msg":"无法获取 Cloudflare 配置"}\n'
+    fi
+    exit 0
+    ;;
+  cf_config_save)
+    cfg_data=$(get_param config)
+    [ -n "$cfg_data" ] || cfg_data="$BODY"
+    res=$(printf '%s' "$cfg_data" | /usr/bin/n1-cf-ctl save 2>&1)
+    printf 'Content-Type: application/json; charset=utf-8\nCache-Control: no-store\n\n'
+    printf '%s\n' "$res"
+    exit 0
+    ;;
+  cf_update)
+    out=$(/root/cf-update.sh 2>&1 | tail -n 1 | tr '\n' ' ')
+    printf 'Content-Type: application/json; charset=utf-8\nCache-Control: no-store\n\n'
+    printf '{"ok":true,"msg":"%s"}\n' "$(jstr "$out")"
+    exit 0
+    ;;
+  cf_sub)
+    out=$(/root/cf-update.sh "${CF_MODE:-generator}" "${CF_PORT:--1}" 2>&1 | tail -n 1 | tr '\n' ' ')
+    printf 'Content-Type: application/json; charset=utf-8\nCache-Control: no-store\n\n'
+    printf '{"ok":true,"msg":"%s"}\n' "$(jstr "$out")"
+    exit 0
+    ;;
+  node)
+    if [ "$IP" != "default" ] && ! valid_ip "$IP"; then
+      printf 'Content-Type: application/json; charset=utf-8\n\n'
+      printf '{"ok":false,"msg":"目标 IP 不在允许范围"}\n'
+      exit 0
+    fi
+    out=$("$N1CTL" node "$IP" "$NODE" 2>&1)
+    rc=$?
+    printf 'Content-Type: application/json; charset=utf-8\nCache-Control: no-store\n\n'
+    printf '{"ok":%s,"msg":"%s"}\n' "$([ $rc -eq 0 ] && echo true || echo false)" "$(jstr "$(printf '%s' "$out" | tr '\n' ' ' | sed 's/  */ /g')")"
+    exit 0
+    ;;
+  name|block|unblock|limit) ;;
+  *)
+    printf 'Content-Type: application/json; charset=utf-8\n\n'
+    printf '{"ok":false,"msg":"未知操作"}\n'
+    exit 0 ;;
+esac
+
+if ! valid_ip "$IP"; then
+  printf 'Content-Type: application/json; charset=utf-8\n\n'
+  printf '{"ok":false,"msg":"IP 不在局域网允许范围（192.168.x.x）"}\n'
+  exit 0
+fi
+
+case "$ACTION" in
+  name)    out=$("$N1CTL" name "$IP" "$NM" 2>&1) ;;
+  block)   out=$("$N1CTL" block "$IP" 2>&1) ;;
+  unblock) out=$("$N1CTL" unblock "$IP" 2>&1) ;;
+  limit)   out=$("$N1CTL" limit "$IP" "${RATE:-0}" 2>&1) ;;
+esac
+
+printf 'Content-Type: application/json; charset=utf-8\n'
+printf 'Cache-Control: no-store\n\n'
+printf '{"ok":true,"msg":"%s"}\n' "$(jstr "$(printf '%s' "$out" | tr '\n' ' ' | sed 's/  */ /g')")"

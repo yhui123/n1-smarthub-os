@@ -1,0 +1,264 @@
+#!/bin/sh
+# --- panel token auth (2026-10-08) ---
+_PT=$(cat /etc/frp/panel-token 2>/dev/null)
+_TOKOK=0
+[ -n "$_PT" ] && [ "$HTTP_X_PANEL_TOKEN" = "$_PT" ] && _TOKOK=1
+case "$QUERY_STRING" in *"token=$_PT"*) _TOKOK=1 ;; esac
+if [ "$_TOKOK" != "1" ]; then
+  printf 'Status: 401 Forbidden\r\nContent-Type: application/json\r\n\r\n{"error":"unauthorized"}'
+  exit 0
+fi
+# --- end panel token auth ---
+# =====================================================================
+# N1 代理健康面板 · 控制接口（CGI）
+# 路径: /cgi-bin/proxy-health-ctl
+# 用法（GET 或 POST）:
+#   action=status               当前出口模式 + 服务状态
+#   action=switch&mode=hysteria 切换到 Hysteria2 出口
+#   action=switch&mode=reality  切回 Reality(VLESS) 出口
+#   action=restart&svc=xray     重启 xray
+#   action=restart&svc=hysteria 重启 hysteria
+#   action=stop&svc=xray        停止 xray
+#   action=stop&svc=hysteria    停止 hysteria
+#   action=start&svc=xray       启动 xray
+#   action=start&svc=hysteria   启动 hysteria
+#   action=dnsflush             清理 DNS 缓存
+#
+# 注意：switch/restart/stop/start 会影响代理，前端需二次确认。
+# 安全：仅监听内网（uhttpd），N1 为旁路由不暴露公网。
+# =====================================================================
+
+XRAY_DIR="/etc/xray"
+HY_SWITCH="/root/hy-switch.sh"
+
+# ---------- 输出 JSON 头 ----------
+out_header() {
+  printf 'Content-Type: application/json; charset=utf-8\r\n'
+  printf 'Cache-Control: no-store\r\n'
+  printf '\r\n'
+}
+
+# ---------- 判断当前全局默认出口（读取 /etc/n1-device-nodes.conf）----------
+current_mode() {
+  _m=$(awk '$1=="default"{print $2; exit}' /etc/n1-device-nodes.conf 2>/dev/null)
+  [ -z "$_m" ] && _m="hysteria"
+  echo "$_m"
+}
+
+# ---------- 服务状态 ----------
+svc_status() {
+  _x=$(pgrep -f 'xray run' >/dev/null 2>&1 && echo running || echo stopped)
+  _h=$(pgrep -f 'hysteria client' >/dev/null 2>&1 && echo running || echo stopped)
+  printf '"xray":"%s","hysteria":"%s"' "$_x" "$_h"
+}
+
+# ---------- 各动作 ----------
+do_status() {
+  _mode=$(current_mode)
+  printf '{"ok":true,"mode":"%s","services":{%s}}' "$_mode" "$(svc_status)"
+}
+
+do_switch() {
+  _m="${QUERY_STRING##*mode=}"
+  _m="${_m%%&*}"
+  case "$_m" in
+    hysteria|reality|cf-us|cf-jp|cf-sg|cf-hk) ;;
+    *) printf '{"ok":false,"error":"未知模式: %s"}' "$_m"; return ;;
+  esac
+  # 执行切换
+  _out=$("/usr/bin/n1ctl" node default "$_m" 2>&1)
+  sleep 1
+  _mode=$(current_mode)
+  printf '{"ok":true,"mode":"%s","detail":"%s","services":{%s}}' \
+    "$_mode" "$(printf '%s' "$_out" | head -3 | tr '\n' ' ')" "$(svc_status)"
+}
+
+do_restart() {
+  _s="${QUERY_STRING##*svc=}"
+  _s="${_s%%&*}"
+  case "$_s" in
+    xray|hysteria) ;;
+    *) printf '{"ok":false,"error":"未知服务: %s"}' "$_s"; return ;;
+  esac
+  /etc/init.d/"$_s" restart >/dev/null 2>&1
+  sleep 2
+  printf '{"ok":true,"svc":"%s","action":"restart","services":{%s}}' "$_s" "$(svc_status)"
+}
+
+do_stop() {
+  _s="${QUERY_STRING##*svc=}"
+  _s="${_s%%&*}"
+  case "$_s" in
+    xray|hysteria) ;;
+    *) printf '{"ok":false,"error":"未知服务: %s"}' "$_s"; return ;;
+  esac
+  /etc/init.d/"$_s" stop >/dev/null 2>&1
+  sleep 1
+  printf '{"ok":true,"svc":"%s","action":"stop","services":{%s}}' "$_s" "$(svc_status)"
+}
+
+do_start() {
+  _s="${QUERY_STRING##*svc=}"
+  _s="${_s%%&*}"
+  case "$_s" in
+    xray|hysteria) ;;
+    *) printf '{"ok":false,"error":"未知服务: %s"}' "$_s"; return ;;
+  esac
+  /etc/init.d/"$_s" start >/dev/null 2>&1
+  sleep 2
+  printf '{"ok":true,"svc":"%s","action":"start","services":{%s}}' "$_s" "$(svc_status)"
+}
+
+do_dnsflush() {
+  # dnsmasq 清缓存（SIGHUP 重读配置并清空缓存）
+  killall -HUP dnsmasq 2>/dev/null
+  sleep 1
+  printf '{"ok":true,"msg":"DNS 缓存已清理"}'
+}
+
+# =====================================================================
+# 配置文件查看 / 编辑（白名单 + 校验 + 回滚）
+# =====================================================================
+CONF_LIST="/tmp/.health-confs"
+# 格式: key|path|desc|validate_type
+cat > "$CONF_LIST" <<'EOF'
+nodes|/etc/n1-device-nodes.conf|分设备节点路由规则|plain
+cfbest|/etc/xray/cf-best.conf|CF优选最快IP|plain
+xray|/etc/xray/config.json|xray 主配置（代理内核）|xray
+hysteria|/etc/hysteria/client.yaml|hysteria 客户端（UDP 隧道）|hysteria
+devices|/etc/n1-devices.conf|设备命名表|plain
+limits|/etc/n1-limits.conf|限速规则|plain
+block|/etc/n1-block.conf|禁用名单|plain
+EOF
+
+# JSON 转义（保留换行为 \n）
+jesc() {
+  sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/\\t/g' | tr -d '\r' | awk '{printf "%s\\n", $0}'
+}
+
+# 按 key 查配置项
+conf_lookup() {
+  awk -F'|' -v k="$1" '$1==k{print $0; exit}' "$CONF_LIST"
+}
+
+do_files() {
+  printf '{"ok":true,"files":['
+  _first=1
+  while IFS='|' read -r _k _p _d _v; do
+    [ -z "$_k" ] && continue
+    _sz=$(wc -c < "$_p" 2>/dev/null || echo 0)
+    [ "$_first" = 1 ] && _first=0 || printf ','
+    printf '{"key":"%s","path":"%s","desc":"%s","size":%s}' "$_k" "$_p" "$_d" "${_sz:-0}"
+  done < "$CONF_LIST"
+  printf ']}'
+}
+
+do_read() {
+  _k="${QUERY_STRING##*file=}"
+  _k="${_k%%&*}"
+  _line=$(conf_lookup "$_k")
+  [ -z "$_line" ] && { printf '{"ok":false,"error":"未知配置: %s"}' "$_k"; return; }
+  _p=$(printf '%s' "$_line" | cut -d'|' -f2)
+  _d=$(printf '%s' "$_line" | cut -d'|' -f3)
+  _c=$(cat "$_p" 2>/dev/null | jesc)
+  printf '{"ok":true,"key":"%s","path":"%s","desc":"%s","content":"%s"}' \
+    "$_k" "$_p" "$_d" "$_c"
+}
+
+# 校验 xray 配置（必须用 .json 后缀临时文件）
+validate_xray() {
+  _tmp="/tmp/.health_xray_test.$$.json"
+  cat > "$_tmp"
+  if xray run -test -config "$_tmp" >/dev/null 2>&1; then
+    rm -f "$_tmp"; return 0
+  else
+    rm -f "$_tmp"; return 1
+  fi
+}
+
+# 校验 hysteria：能正常启动即通过
+validate_hysteria() {
+  _tmp="/tmp/.health_hy_test.$$.yaml"
+  cat > "$_tmp"
+  hysteria client -c "$_tmp" >/dev/null 2>&1 &
+  _pid=$!
+  sleep 2
+  if kill -0 "$_pid" 2>/dev/null; then
+    kill "$_pid" 2>/dev/null
+    rm -f "$_tmp"; return 0
+  else
+    rm -f "$_tmp"; return 1
+  fi
+}
+
+do_save() {
+  _k="${QUERY_STRING##*file=}"
+  _k="${_k%%&*}"
+  _line=$(conf_lookup "$_k")
+  [ -z "$_line" ] && { printf '{"ok":false,"error":"未知配置: %s"}' "$_k"; return; }
+  _p=$(printf '%s' "$_line" | cut -d'|' -f2)
+  _v=$(printf '%s' "$_line" | cut -d'|' -f4)
+
+  # 读 POST body（新内容）
+  _body=$(cat)
+
+  # 备份
+  _bak="/root/n1-backup/$(basename "$_p").edit.$(date +%s)"
+  cp "$_p" "$_bak" 2>/dev/null
+
+  # 校验
+  _valid=1
+  case "$_v" in
+    xray)     printf '%s' "$_body" | validate_xray || _valid=0 ;;
+    hysteria) printf '%s' "$_body" | validate_hysteria || _valid=0 ;;
+  esac
+
+  if [ "$_valid" != 1 ]; then
+    printf '{"ok":false,"error":"配置校验失败，已保留原文件（备份: %s）"}' "$_bak"
+    return
+  fi
+
+  # 写入正式文件
+  printf '%s' "$_body" > "$_p"
+
+  # 应用
+  _applied=""
+  case "$_k" in
+    xray)     /etc/init.d/xray restart >/dev/null 2>&1; _applied="xray 已重启" ;;
+    hysteria) /etc/init.d/hysteria restart >/dev/null 2>&1; _applied="hysteria 已重启" ;;
+    nodes|cfbest) /usr/bin/n1-xray-gen >/dev/null 2>&1; /etc/init.d/xray restart >/dev/null 2>&1; _applied="分设备节点规则已生成并重启 xray" ;;
+    devices|limits|block) /usr/bin/n1ctl apply >/dev/null 2>&1; _applied="n1ctl 规则已应用" ;;
+  esac
+  sleep 2
+
+  printf '{"ok":true,"key":"%s","validated":true,"applied":"%s","backup":"%s"}' \
+    "$_k" "$_applied" "$_bak"
+}
+
+# ---------- 解析 action ----------
+QS="$(printf '%s' "${QUERY_STRING:-}" | tr -d '\r')"
+ACTION=""
+case "$QS" in
+  *action=switch*)  ACTION="switch";;
+  *action=restart*) ACTION="restart";;
+  *action=stop*)    ACTION="stop";;
+  *action=start*)   ACTION="start";;
+  *action=files*)   ACTION="files";;
+  *action=read*)    ACTION="read";;
+  *action=save*)    ACTION="save";;
+  *action=dnsflush*) ACTION="dnsflush";;
+  *action=status*)  ACTION="status";;
+esac
+
+out_header
+case "$ACTION" in
+  switch)  do_switch ;;
+  restart) do_restart ;;
+  stop)    do_stop ;;
+  start)   do_start ;;
+  files)   do_files ;;
+  read)    do_read ;;
+  save)    do_save ;;
+  dnsflush) do_dnsflush ;;
+  *)       do_status ;;
+esac

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>盒子运行状态</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --card:#fff; --line:#e3e8ee; --txt:#1f2733; --sub:#6b7686;
+    --accent:#2f6fed; --accent2:#12a05c; --warn:#e0860a; --danger:#d64545;
+    --shadow:0 1px 3px rgba(16,24,40,.06),0 1px 2px rgba(16,24,40,.04);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12161c; --card:#1b2129; --line:#2b333d; --txt:#e6ebf2; --sub:#95a1b2;
+      --accent:#5b95ff; --accent2:#3ecf8e; --warn:#f0a83c; --danger:#f07070;
+      --shadow:0 1px 3px rgba(0,0,0,.3);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.55;padding-bottom:24px}
+  .wrap{max-width:900px;margin:0 auto;padding:16px 14px 32px}
+
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+  h1{font-size:18px;font-weight:600;margin:0}
+  .ts{color:var(--sub);font-size:12px}
+  .spacer{flex:1}
+  .btn{background:var(--card);border:1px solid var(--line);color:var(--txt);
+    padding:6px 12px;border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
+  .btn:hover{border-color:var(--accent);color:var(--accent)}
+
+  .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px}
+  @media(min-width:700px){.stats{grid-template-columns:repeat(4,minmax(0,1fr))}}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;box-shadow:var(--shadow)}
+  .stat .k{color:var(--sub);font-size:11.5px;margin-bottom:3px}
+  .stat .v{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.25}
+  .stat .u{font-size:11px;color:var(--sub);margin-left:2px;font-weight:400}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:14px 16px;box-shadow:var(--shadow);margin-bottom:12px}
+  .card h2{font-size:14.5px;font-weight:600;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+  .card h2 .badge{font-size:11px;font-weight:500;background:var(--bg);border:1px solid var(--line);
+    color:var(--sub);padding:1px 8px;border-radius:20px}
+
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:6px 0;
+    border-bottom:1px solid var(--line);font-size:13px}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--sub)}
+  .kv .v{font-variant-numeric:tabular-nums;text-align:right;word-break:break-all}
+
+  .bar{height:7px;border-radius:4px;background:var(--line);overflow:hidden;margin:7px 0 4px}
+  .bar i{display:block;height:100%;background:var(--accent);border-radius:4px}
+  .bar i.hot{background:var(--warn)}
+  .bar i.crit{background:var(--danger)}
+  .dl{display:flex;justify-content:space-between;font-size:12px;color:var(--sub)}
+
+  .dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--sub)}
+  .dot.on{background:var(--accent2)}
+  .dot.off{background:var(--danger)}
+  .dot.warn{background:var(--warn)}
+
+  .ct{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--line)}
+  .ct:last-child{border-bottom:none}
+  .ct .ic{width:38px;height:38px;border-radius:10px;background:var(--bg);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:19px;flex:0 0 auto}
+  .ct .mid{flex:1;min-width:0}
+  .ct .nm{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .ct .sub{color:var(--sub);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ct .rt{text-align:right;font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums;flex:0 0 auto}
+  .tag{font-size:10.5px;padding:1px 7px;border-radius:20px;font-weight:500;
+    background:var(--bg);border:1px solid var(--line);color:var(--sub)}
+  .tag.ok{background:color-mix(in srgb,var(--accent2) 16%,transparent);color:var(--accent2);border-color:transparent}
+  .tag.bad{background:color-mix(in srgb,var(--danger) 16%,transparent);color:var(--danger);border-color:transparent}
+  .tag.port{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent);border-color:transparent;
+    cursor:pointer;text-decoration:none}
+  .err{color:var(--danger);font-size:13px}
+  .hint{color:var(--sub);font-size:12px;text-align:center;padding:24px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>盒子运行状态</h1>
+    <span class="ts" id="ts">加载中…</span>
+    <span class="spacer"></span>
+    <button class="btn" id="refresh">刷新</button>
+  </header>
+
+  <div id="err" class="err" style="display:none"></div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="card">
+    <h2>代理链路 <span class="badge" id="pxBadge">—</span></h2>
+    <div id="proxy"></div>
+  </div>
+
+  <div class="card">
+    <h2>存储</h2>
+    <div id="disk"></div>
+  </div>
+
+  <div class="card">
+    <h2>Docker 应用 <span class="badge" id="ctBadge">—</span></h2>
+    <div id="containers"></div>
+  </div>
+
+  <div class="card">
+    <h2>系统</h2>
+    <div id="sys"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var P = new URLSearchParams(location.search);
+  var TOKEN = P.get('token') || '';
+  try { if (!TOKEN) TOKEN = localStorage.getItem('n1_token') || 'd1d20aec7451ab4ebbfb1e6dfe11f22b'; } catch(e){}
+  if (P.get('token')) { try { localStorage.setItem('n1_token', P.get('token')); } catch(e){} }
+
+  var LANRE = /^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.)/;
+  var HOST = location.hostname;
+  var isLan = LANRE.test(HOST);
+
+  function el(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function bar(pct){
+    var c = pct>=90?'crit':(pct>=70?'hot':'');
+    return '<div class="bar"><i class="'+c+'" style="width:'+Math.min(100,pct)+'%"></i></div>';
+  }
+  function kv(k,v){ return '<div class="kv"><span class="k">'+k+'</span><span class="v">'+(v==null?'—':v)+'</span></div>'; }
+
+  var ICONS = {
+    'uptime-kuma':'📈', 'kuma':'📈', 'vaultwarden':'🔐', 'syncthing':'🔄',
+    'nginx':'🌐', 'portainer':'🐳', 'homeassistant':'🏠', 'alist':'📁',
+    'qbittorrent':'🧲', 'transmission':'🧲', 'jellyfin':'🎬', 'plex':'🎬'
+  };
+  function iconOf(n){
+    n = String(n||'').toLowerCase();
+    for (var k in ICONS) if (n.indexOf(k) >= 0) return ICONS[k];
+    return '📦';
+  }
+
+  function renderSys(d){
+    var s = d.sys || {};
+    var h = '';
+    h += kv('固件', s.fw);
+    h += kv('CPU', s.cpu + ' · ' + s.ncpu + ' 核');
+    h += kv('运行时间', s.uptime);
+    h += kv('负载 1/5/15', (s.load1||'-')+' / '+(s.load5||'-')+' / '+(s.load15||'-'));
+    h += kv('局域网 IP', s.lan_ip);
+    h += kv('互联网', s.wan_ok ? '✅ 已连通' : '❌ 不通');
+    h += kv('局域网在线设备', s.lan_online + ' 台');
+    el('sys').innerHTML = h;
+
+    var t = s.temp_c ? (s.temp_c + '°C') : '—';
+    el('stats').innerHTML =
+      stat('内存', s.mem_pct + '%', s.mem_used_mb + ' / ' + s.mem_total_mb + ' MB') +
+      stat('CPU 温度', t, '') +
+      stat('运行', s.uptime, '') +
+      stat('负载', s.load5, '5分钟');
+  }
+  function stat(k, v, sub){
+    return '<div class="stat"><div class="k">'+esc(k)+'</div><div class="v">'+esc(v)+
+      (sub?'<span class="u">'+esc(sub)+'</span>':'')+'</div></div>';
+  }
+
+  function renderDisk(d){
+    var h = '';
+    [['系统分区', d.disk && d.disk.root], ['数据盘 (移动硬盘)', d.disk && d.disk.data]].forEach(function(p){
+      var k = p[0], v = p[1];
+      if (!v) return;
+      h += '<div style="margin-bottom:10px"><div class="dl"><span>'+esc(k)+' · '+esc(v.mount)+
+           '</span><span>'+esc(v.used)+' / '+esc(v.total)+'</span></div>' +
+           bar(v.pct) +
+           '<div class="dl"><span>可用 '+esc(v.avail)+'</span><span>'+v.pct+'%</span></div></div>';
+    });
+    if (!h) h = '<div class="hint">未检测到数据盘</div>';
+    el('disk').innerHTML = h;
+  }
+
+  function renderProxy(d){
+    var p = d.proxy || {};
+    function row(k, on, extra){
+      return kv(k, '<span class="dot '+(on?'on':'off')+'"></span> ' + (on?'运行中':'未运行') + (extra?' · '+esc(extra):''));
+    }
+    var h = '';
+    h += row('Xray 代理', p.xray, p.listen ? ('入口 :'+p.port+' 监听中') : ('入口 :'+p.port+' 未监听'));
+    h += row('Hysteria', p.hysteria);
+    h += row('frp 内网穿透', p.frpc);
+    h += kv('当前出口', p.out);
+    if (p.cf_ip) h += kv('最快 CF 节点', p.cf_ip + ' · ' + (p.cf_ms ? p.cf_ms+'ms' : '—') + (p.cf_ts ? ' · '+p.cf_ts.replace('_',' '):''));
+    el('proxy').innerHTML = h;
+    el('pxBadge').textContent = (p.xray ? '代理在线' : '代理离线');
+  }
+
+  function renderCt(d){
+    var list = (d.docker && d.docker.containers) || [];
+    var pub = d.pub || {};
+    var h = '';
+    var up = 0;
+    list.forEach(function(c){
+      if (c.up) up++;
+      var hl = c.health === 'healthy' ? '<span class="tag ok">健康</span>'
+             : (c.health === 'unhealthy' ? '<span class="tag bad">异常</span>' : '');
+      var portTag = '';
+      if (c.port) {
+        var rp = isLan ? c.port : pub[String(c.port)];
+        portTag = rp ? '<a class="tag port" href="http://'+HOST+':'+rp+'/">:'+rp+' 打开</a>'
+                     : '<span class="tag">:'+c.port+' 局域网</span>';
+      }
+      h += '<div class="ct">' +
+             '<div class="ic">'+iconOf(c.name)+'</div>' +
+             '<div class="mid"><div class="nm">'+esc(c.name)+hl+portTag+'</div>' +
+               '<div class="sub">'+esc(c.image)+'</div>' +
+               '<div class="sub">'+esc(c.state)+'</div></div>' +
+             '<div class="rt">'+(c.up?('<span class="dot on"></span> '):('<span class="dot off"></span> ')) +
+               '<div>'+c.mem_mb+' MB</div><div>CPU '+c.cpu_pct+'%</div></div>' +
+           '</div>';
+    });
+    if (!h) h = d.docker && d.docker.ok ? '<div class="hint">没有容器</div>'
+                                        : '<div class="hint">Docker 未运行</div>';
+    el('containers').innerHTML = h;
+    el('ctBadge').textContent = up + ' / ' + list.length + ' 运行中';
+  }
+
+  function load(){
+    var url = '/cgi-bin/n1-status?token=' + encodeURIComponent(TOKEN) + '&_=' + Date.now();
+    fetch(url, {headers: {'X-Panel-Token': TOKEN}}).then(function(r){
+      if (r.status === 401) throw new Error('token 无效，请用 App 打开或带 token 访问');
+      return r.json();
+    }).then(function(d){
+      el('err').style.display = 'none';
+      el('ts').textContent = '更新于 ' + (d.ts || '');
+      renderSys(d); renderDisk(d); renderProxy(d); renderCt(d);
+    }).catch(function(e){
+      el('err').style.display = 'block';
+      el('err').textContent = '读取失败：' + (e && e.message ? e.message : e);
+    });
+  }
+
+  el('refresh').onclick = load;
+  load();
+  setInterval(load, 30000);
+})();
+</script>
+</body>
+</html>

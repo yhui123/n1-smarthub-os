@@ -1,0 +1,318 @@
+#!/bin/sh
+# =====================================================================
+# N1 代理健康面板 · 数据接口（CGI）
+# 路径: /cgi-bin/proxy-health
+# 用法: ?type=all        全部数据（默认）
+#       ?type=core       内核状态
+#       ?type=chain      出口链路
+#       ?type=server     服务器连通性
+#       ?type=conn       连接统计
+#       ?type=probe      实时测速（较慢，前端单独拉）
+#       ?type=sys        系统资源
+#       ?type=rate       实时速率（差分采样 + 历史趋势）
+#
+# 只读接口，不做任何修改。
+# =====================================================================
+
+PORT=10808
+HY_PORT=10809
+XRAY_SOCKS=1080
+HY_SERVER="43.173.124.48"
+HY_PORT_R=443
+
+# 速率采样状态文件（/tmp，重启自动清零，无副作用）
+RATE_STATE=/tmp/.ph_rate        # 原始累计值快照
+RATE_LAST=/tmp/.ph_rate.last    # 上次计算结果
+RATE_HIST=/tmp/.ph_hist         # 下行趋势序列（最多90行）
+
+# ---------- JSON 转义 ----------
+jstr() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/\t/ /g' | tr -d '\r\n'
+}
+
+# ---------- 输出头 ----------
+printf 'Content-Type: application/json; charset=utf-8\r\n'
+printf 'Cache-Control: no-store\r\n'
+printf '\r\n'
+
+# =====================================================================
+# 1. 内核状态
+# =====================================================================
+core_json() {
+  _xpid=$(ps w | grep '[x]ray run' | awk '{print $1}' | head -1)
+  _hpid=$(ps w | grep '[h]ysteria client' | awk '{print $1}' | head -1)
+  _nowup=$(awk '{print int($1)}' /proc/uptime)
+
+  # uptime-kuma（Docker 监控容器，端口 3001）
+  _kuma="stopped"
+  netstat -tln 2>/dev/null | grep -q ':3001 ' && _kuma="running"
+
+  # 进程 CPU% 来自速率采样的最近一次结果
+  _xc=0; _hc=0
+  if [ -f "$RATE_LAST" ]; then
+    _xc=$(awk -F'|' '{print $6}' "$RATE_LAST" 2>/dev/null); _xc=$(( ${_xc:-0} + 0 ))
+    _hc=$(awk -F'|' '{print $7}' "$RATE_LAST" 2>/dev/null); _hc=$(( ${_hc:-0} + 0 ))
+  fi
+
+  # xray
+  if [ -n "$_xpid" ]; then
+    _xmem=$(awk '{print int($1/1024)}' /proc/$_xpid/statm 2>/dev/null)
+    _xstat="running"
+    _xth=$(awk '/^Threads/{print $2}' /proc/$_xpid/status 2>/dev/null); _xth=$(( ${_xth:-0} + 0 ))
+    _xfd=$(ls /proc/$_xpid/fd 2>/dev/null | wc -l); _xfd=$(( _xfd + 0 ))
+    _xst=$(awk '{print $22}' /proc/$_xpid/stat 2>/dev/null); _xst=$(( ${_xst:-0} + 0 ))
+    _xrun=$(( _nowup - _xst / 100 )); [ "$_xrun" -lt 0 ] && _xrun=0
+    _xstart=$(ls -ld /proc/$_xpid 2>/dev/null | awk '{print $6" "$7" "$8}')
+  else
+    _xstat="stopped"; _xstart="-"; _xmem=0; _xth=0; _xfd=0; _xrun=0
+  fi
+
+  # hysteria
+  if [ -n "$_hpid" ]; then
+    _hmem=$(awk '{print int($1/1024)}' /proc/$_hpid/statm 2>/dev/null)
+    _hstat="running"
+    _hth=$(awk '/^Threads/{print $2}' /proc/$_hpid/status 2>/dev/null); _hth=$(( ${_hth:-0} + 0 ))
+    _hfd=$(ls /proc/$_hpid/fd 2>/dev/null | wc -l); _hfd=$(( _hfd + 0 ))
+    _hst=$(awk '{print $22}' /proc/$_hpid/stat 2>/dev/null); _hst=$(( ${_hst:-0} + 0 ))
+    _hrun=$(( _nowup - _hst / 100 )); [ "$_hrun" -lt 0 ] && _hrun=0
+    _hstart=$(ls -ld /proc/$_hpid 2>/dev/null | awk '{print $6" "$7" "$8}')
+  else
+    _hstat="stopped"; _hstart="-"; _hmem=0; _hth=0; _hfd=0; _hrun=0
+  fi
+
+  # 版本
+  _xver=$(xray version 2>/dev/null | head -1 | awk '{print $2}')
+
+  printf '{"xray":{"status":"%s","pid":"%s","mem_mb":%s,"start":"%s","version":"%s","threads":%s,"fds":%s,"runtime_s":%s,"cpu_pct":%s},' \
+    "$_xstat" "${_xpid:-0}" "${_xmem:-0}" "$(jstr "$_xstart")" "$(jstr "$_xver")" "$_xth" "$_xfd" "$_xrun" "$_xc"
+  printf '"hysteria":{"status":"%s","pid":"%s","mem_mb":%s,"start":"%s","threads":%s,"fds":%s,"runtime_s":%s,"cpu_pct":%s},' \
+    "$_hstat" "${_hpid:-0}" "${_hmem:-0}" "$(jstr "$_hstart")" "$_hth" "$_hfd" "$_hrun" "$_hc"
+  printf '"kuma":{"status":"%s"}}' "$_kuma"
+}
+
+# =====================================================================
+# 2. 出口链路（逐段检测）
+# =====================================================================
+chain_json() {
+  # ① xray 入站 10808
+  if netstat -tln 2>/dev/null | grep -q ':10808 '; then _in="ok"; else _in="down"; fi
+  # ② xray socks 1080
+  if netstat -tln 2>/dev/null | grep -q '127.0.0.1:1080 '; then _socks="ok"; else _socks="down"; fi
+  # ③ hysteria 10809
+  if netstat -tln 2>/dev/null | grep -q '127.0.0.1:10809 '; then _hy="ok"; else _hy="down"; fi
+
+  printf '{"in_10808":"%s","xray_socks":"%s","hysteria_10809":"%s","server":"%s:%s"}' \
+    "$_in" "$_socks" "$_hy" "$HY_SERVER" "$HY_PORT_R"
+}
+
+# =====================================================================
+# 3. 服务器连通性（TCP 探测 + 延迟）
+# =====================================================================
+server_json() {
+  _t0=$(awk '{printf "%d", $1*1000}' /proc/uptime)
+  # 用 curl 做 TCP 层探测（busybox 的 nc 不支持 -z，不能用）
+  if curl -s -o /dev/null -m 3 --connect-timeout 3 \
+       "https://$HY_SERVER:$HY_PORT_R" 2>/dev/null; then
+    _reach="ok"
+  else
+    # curl 退出码 35/60 说明 TCP 已连通（只是 TLS 校验或握手问题）
+    _rc=$?
+    case "$_rc" in
+      35|60|51|56|77) _reach="ok" ;;
+      *) _reach="fail" ;;
+    esac
+  fi
+  _t1=$(awk '{printf "%d", $1*1000}' /proc/uptime)
+  if [ "$_reach" = "ok" ]; then
+    _rtt=$((_t1 - _t0))
+  else
+    _rtt=0
+  fi
+  printf '{"addr":"%s","port":%s,"reachable":"%s","rtt_ms":%s}' \
+    "$HY_SERVER" "$HY_PORT_R" "$_reach" "$_rtt"
+}
+
+# =====================================================================
+# 4. 连接统计（conntrack）
+# =====================================================================
+conn_json() {
+  _ct=$(cat /proc/net/nf_conntrack 2>/dev/null | grep "dport=$PORT")
+  _total=$(printf '%s' "$_ct" | grep -c . 2>/dev/null)
+  [ -z "$_total" ] && _total=0
+  _est=$(printf '%s' "$_ct" | grep -c 'ESTABLISHED' 2>/dev/null)
+  [ -z "$_est" ] && _est=0
+  _srv=$(cat /proc/net/nf_conntrack 2>/dev/null | grep -c "$HY_SERVER")
+  [ -z "$_srv" ] && _srv=0
+
+  # 上行/下行字节（累加 10808 连接）
+  _up=$(printf '%s' "$_ct" | awk '{for(i=1;i<=NF;i++){if($i ~ /^bytes=/){n++; if(n%2==1){gsub("bytes=","",$i); s+=$i}}}}END{print int(s)}')
+  _down=$(printf '%s' "$_ct" | awk '{for(i=1;i<=NF;i++){if($i ~ /^bytes=/){n++; if(n%2==0){gsub("bytes=","",$i); s+=$i}}}}END{print int(s)}')
+  [ -z "$_up" ] && _up=0
+  [ -z "$_down" ] && _down=0
+
+  # 整机连接视角
+  _sysct=$(cat /proc/net/nf_conntrack 2>/dev/null | wc -l); _sysct=$(( _sysct + 0 ))
+  _tcest=$(netstat -tn 2>/dev/null | grep -c ESTABLISHED); _tcest=$(( _tcest + 0 ))
+
+  printf '{"active":%s,"established":%s,"to_server":%s,"up_bytes":%s,"down_bytes":%s,"sys_total":%s,"tcp_est":%s}' \
+    "$_total" "$_est" "$_srv" "$_up" "$_down" "$_sysct" "$_tcest"
+}
+
+# =====================================================================
+# 5. 实时探测（HTTP 码 + 耗时）
+# =====================================================================
+probe_json() {
+  _r=""
+  for _h in www.google.com github.com; do
+    _out=$(curl -s -o /dev/null -w '%{http_code}|%{time_total}' -m 6 \
+           --connect-timeout 4 \
+           -x "http://127.0.0.1:$PORT" "https://$_h" 2>/dev/null)
+    _c=$(printf '%s' "$_out" | cut -d'|' -f1)
+    _t=$(printf '%s' "$_out" | cut -d'|' -f2)
+    [ -z "$_c" ] && _c="000"
+    [ -z "$_t" ] && _t="0"
+    _r="$_r{\"host\":\"$_h\",\"code\":\"$_c\",\"time\":\"$_t\"},"
+  done
+  printf '{"results":[%s]}' "$(printf '%s' "$_r" | sed 's/,$//')"
+}
+
+# =====================================================================
+# 6. 系统资源
+# =====================================================================
+sys_json() {
+  _load=$(cat /proc/loadavg | cut -d' ' -f1-3 | tr ' ' ',')
+  _memtotal=$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)
+  _memavail=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)
+  _memused=$((_memtotal - _memavail))
+  _uptime_s=$(awk '{print int($1)}' /proc/uptime)
+  _disk=$(df -k /overlay 2>/dev/null | awk 'NR==2{print int($3/1024)","int($2/1024)}')
+  _dtot=$(printf '%s' "$_disk" | cut -d, -f2)
+  _dused=$(printf '%s' "$_disk" | cut -d, -f1)
+  # 温度 / 频率 / 核心数 / 主机名
+  _temp=$(cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null); _temp=$(( ${_temp:-0} / 1000 ))
+  _freq=$(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null); _freq=$(( ${_freq:-0} / 1000 ))
+  _cores=$(ls /sys/devices/system/cpu/ 2>/dev/null | grep -c 'cpu[0-9]'); _cores=$(( _cores + 0 ))
+  _host=$(cat /proc/sys/kernel/hostname 2>/dev/null)
+  printf '{"load":[%s],"mem_total":%s,"mem_used":%s,"uptime_s":%s,"disk_used":%s,"disk_total":%s,"temp":%s,"freq_mhz":%s,"cores":%s,"hostname":"%s"}' \
+    "$_load" "$_memtotal" "$_memused" "$_uptime_s" "${_dused:-0}" "${_dtot:-0}" "$_temp" "$_freq" "$_cores" "$(jstr "$_host")"
+}
+
+# =====================================================================
+# 7. 实时速率（差分采样）+ 历史趋势
+#   原理：把本次累计值快照写入 /tmp/.ph_rate，与上次快照按时间差求速率。
+#   间隔 3~30 秒才计算（防连点尖峰/防久隔均摊），无效间隔沿用上次结果。
+# =====================================================================
+rate_json() {
+  _now=$(awk '{print int($1)}' /proc/uptime)
+  _ep=$(date +%s)
+
+  # 代理累计字节（dport=10808 的 conntrack，奇数位=上行偶数位=下行）
+  _ct=$(cat /proc/net/nf_conntrack 2>/dev/null | grep "dport=$PORT")
+  _up=$(printf '%s' "$_ct" | awk '{for(i=1;i<=NF;i++){if($i ~ /^bytes=/){n++; if(n%2==1){gsub("bytes=","",$i); s+=$i}}}}END{print int(s)}')
+  _down=$(printf '%s' "$_ct" | awk '{for(i=1;i<=NF;i++){if($i ~ /^bytes=/){n++; if(n%2==0){gsub("bytes=","",$i); s+=$i}}}}END{print int(s)}')
+  [ -z "$_up" ] && _up=0
+  [ -z "$_down" ] && _down=0
+
+  # 网口累计字节（eth0 优先，缺省回退 br-lan）
+  if [ -d /sys/class/net/eth0 ]; then _dev="eth0"; else _dev="br-lan"; fi
+  _erx=$(awk -v d="$_dev:" '$1==d{print $2}' /proc/net/dev 2>/dev/null)
+  _etx=$(awk -v d="$_dev:" '$1==d{print $10}' /proc/net/dev 2>/dev/null)
+  _erx=$(( ${_erx:-0} + 0 )); _etx=$(( ${_etx:-0} + 0 ))
+
+  # CPU 总 ticks（idle = idle + iowait）
+  read _cu _cn _cs _ci _cw _cq _csq _rest < /proc/stat 2>/dev/null
+  _idle=$(( ${_ci:-0} + ${_cw:-0} ))
+  _ctot=$(( ${_cu:-0} + ${_cn:-0} + ${_cs:-0} + ${_ci:-0} + ${_cw:-0} + ${_cq:-0} + ${_csq:-0} ))
+
+  # 进程 CPU ticks（utime+stime，HZ=100）
+  _xpid=$(ps w | grep '[x]ray run' | awk '{print $1}' | head -1)
+  _hpid=$(ps w | grep '[h]ysteria client' | awk '{print $1}' | head -1)
+  _xt=0; _ht=0
+  [ -n "$_xpid" ] && _xt=$(awk '{print $14+$15}' /proc/$_xpid/stat 2>/dev/null)
+  [ -n "$_hpid" ] && _ht=$(awk '{print $14+$15}' /proc/$_hpid/stat 2>/dev/null)
+  _xt=$(( ${_xt:-0} + 0 )); _ht=$(( ${_ht:-0} + 0 ))
+
+  # 上次计算结果（无效间隔时沿用，防久隔均摊尖峰）
+  _pub=0; _pdb=0; _rxb=0; _txb=0; _cpu=0; _xc=0; _hc=0
+  [ -f "$RATE_LAST" ] && IFS='|' read -r _pub _pdb _rxb _txb _cpu _xc _hc _itv < "$RATE_LAST" 2>/dev/null
+  _pub=$(( ${_pub:-0} + 0 )); _pdb=$(( ${_pdb:-0} + 0 )); _rxb=$(( ${_rxb:-0} + 0 )); _txb=$(( ${_txb:-0} + 0 ))
+  _cpu=$(( ${_cpu:-0} + 0 )); _xc=$(( ${_xc:-0} + 0 )); _hc=$(( ${_hc:-0} + 0 ))
+
+  # 上次快照
+  _pts=0; _pud=0; _pdown=0; _prx=0; _ptx=0; _pidle=0; _ptot=0; _pxt=0; _pht=0
+  _p=$(cat "$RATE_STATE" 2>/dev/null)
+  if [ -n "$_p" ]; then
+    set -- $_p
+    _pts=$(( ${1:-0} + 0 )); _pud=$(( ${2:-0} + 0 )); _pdown=$(( ${3:-0} + 0 ))
+    _prx=$(( ${4:-0} + 0 )); _ptx=$(( ${5:-0} + 0 )); _pidle=$(( ${6:-0} + 0 ))
+    _ptot=$(( ${7:-0} + 0 )); _pxt=$(( ${8:-0} + 0 )); _pht=$(( ${9:-0} + 0 ))
+  fi
+  _itv=$(( _now - _pts ))
+
+  if [ -n "$_p" ] && [ "$_itv" -ge 3 ] && [ "$_itv" -le 30 ]; then
+    _d=$(( _up - _pud ));     [ "$_d" -lt 0 ] && _d=0;  _pub=$(( _d / _itv ))
+    _d=$(( _down - _pdown )); [ "$_d" -lt 0 ] && _d=0;  _pdb=$(( _d / _itv ))
+    _d=$(( _erx - _prx ));    [ "$_d" -lt 0 ] && _d=0;  _rxb=$(( _d / _itv ))
+    _d=$(( _etx - _ptx ));    [ "$_d" -lt 0 ] && _d=0;  _txb=$(( _d / _itv ))
+    _dtot=$(( _ctot - _ptot ))
+    if [ "$_dtot" -gt 0 ]; then
+      _cpu=$(( ( _dtot - ( _idle - _pidle ) ) * 100 / _dtot ))
+      [ "$_cpu" -lt 0 ] && _cpu=0; [ "$_cpu" -gt 100 ] && _cpu=100
+    fi
+    _tt=$(( _itv * 100 ))
+    _xc=$(( ( _xt - _pxt ) * 100 / _tt )); [ "$_xc" -lt 0 ] && _xc=0; [ "$_xc" -gt 100 ] && _xc=100
+    _hc=$(( ( _ht - _pht ) * 100 / _tt )); [ "$_hc" -lt 0 ] && _hc=0; [ "$_hc" -gt 100 ] && _hc=100
+    # 追加趋势点并裁剪到 90 行
+    printf '%s|%s|%s\n' "$_ep" "$_pdb" "$_pub" >> "$RATE_HIST" 2>/dev/null
+    if [ -f "$RATE_HIST" ]; then
+      tail -90 "$RATE_HIST" > "$RATE_HIST.t" 2>/dev/null && mv "$RATE_HIST.t" "$RATE_HIST"
+    fi
+  fi
+
+  # 保存快照与结果
+  printf '%s %s %s %s %s %s %s %s %s\n' "$_now" "$_up" "$_down" "$_erx" "$_etx" "$_idle" "$_ctot" "$_xt" "$_ht" > "$RATE_STATE" 2>/dev/null
+  printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$_pub" "$_pdb" "$_rxb" "$_txb" "$_cpu" "$_xc" "$_hc" "$_itv" > "$RATE_LAST" 2>/dev/null
+
+  # 趋势序列 JSON（最近60点: [epoch,down_bps,up_bps]）
+  _hist=$(tail -60 "$RATE_HIST" 2>/dev/null | awk -F'|' 'BEGIN{o="["}{if(NR>1)o=o",";o=o"["$1","$2","$3"]"}END{print o"]"}')
+  [ -z "$_hist" ] && _hist="[]"
+
+  printf '{"interval_s":%s,"proxy_up_bps":%s,"proxy_down_bps":%s,"eth0_rx_bps":%s,"eth0_tx_bps":%s,"cpu_pct":%s,"xray_cpu_pct":%s,"hysteria_cpu_pct":%s,"dev":"%s","hist":%s}' \
+    "$_itv" "$_pub" "$_pdb" "$_rxb" "$_txb" "$_cpu" "$_xc" "$_hc" "$_dev" "$_hist"
+}
+
+# =====================================================================
+# 分发
+# =====================================================================
+QS=$(printf '%s' "${QUERY_STRING:-}" | tr -d '\r')
+TYPE="all"
+case "$QS" in
+  *type=core*)   TYPE="core" ;;
+  *type=chain*)  TYPE="chain" ;;
+  *type=server*) TYPE="server" ;;
+  *type=conn*)   TYPE="conn" ;;
+  *type=probe*)  TYPE="probe" ;;
+  *type=sys*)    TYPE="sys" ;;
+  *type=rate*)   TYPE="rate" ;;
+esac
+
+case "$TYPE" in
+  core)   core_json ;;
+  chain)  chain_json ;;
+  server) server_json ;;
+  conn)   conn_json ;;
+  probe)  probe_json ;;
+  sys)    sys_json ;;
+  rate)   rate_json ;;
+  all)
+    printf '{'
+    printf '"ts":"%s",' "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf '"core":'; core_json; printf ','
+    printf '"chain":'; chain_json; printf ','
+    printf '"server":'; server_json; printf ','
+    printf '"conn":'; conn_json; printf ','
+    printf '"rate":'; rate_json; printf ','
+    printf '"sys":'; sys_json
+    printf '}'
+    ;;
+esac

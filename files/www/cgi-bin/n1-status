@@ -1,0 +1,204 @@
+#!/bin/sh
+# =====================================================================
+# N1 盒子运行状态 · CGI 数据后端
+#   路径: /cgi-bin/n1-status?token=<panel-token>
+#   输出: JSON（系统资源 / Docker 容器 / 代理链路 / 局域网）
+#   依赖: busybox 环境，无 bash 特性
+# =====================================================================
+
+# ---------- token 校验（与 tokenblock.sh 一致） ----------
+_PT=$(cat /etc/frp/panel-token 2>/dev/null)
+_TOKOK=0
+[ -n "$_PT" ] && [ "$HTTP_X_PANEL_TOKEN" = "$_PT" ] && _TOKOK=1
+case "${QUERY_STRING:-}" in *"token=$_PT"*) _TOKOK=1 ;; esac
+if [ "$_TOKOK" != "1" ]; then
+  printf 'Status: 401 Forbidden\r\nContent-Type: application/json\r\n\r\n{"error":"unauthorized"}'
+  exit 0
+fi
+
+TAB=$(printf '\t')
+jstr() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+has_proc() { ps 2>/dev/null | grep -v grep | grep -c -- "$1"; }
+
+# ---------- 运行时间 ----------
+UP_S=$(awk '{printf "%d", $1}' /proc/uptime 2>/dev/null)
+[ -n "$UP_S" ] || UP_S=0
+UP_D=$((UP_S / 86400)); UP_H=$((UP_S % 86400 / 3600)); UP_M=$((UP_S % 3600 / 60))
+if [ "$UP_D" -gt 0 ]; then UP_TXT="${UP_D} 天 ${UP_H} 小时"
+elif [ "$UP_H" -gt 0 ]; then UP_TXT="${UP_H} 小时 ${UP_M} 分"
+else UP_TXT="${UP_M} 分钟"; fi
+
+# ---------- 负载 / CPU ----------
+LOAD1=$(awk '{print $1}' /proc/loadavg 2>/dev/null)
+LOAD5=$(awk '{print $2}' /proc/loadavg 2>/dev/null)
+LOAD15=$(awk '{print $3}' /proc/loadavg 2>/dev/null)
+NCPU=$(grep -c ^processor /proc/cpuinfo 2>/dev/null); [ "$NCPU" -gt 0 ] || NCPU=1
+CPU_HW=$(grep -m1 -iE 'model name|Hardware|machine' /proc/cpuinfo 2>/dev/null | cut -d: -f2- | sed 's/^ *//')
+[ -n "$CPU_HW" ] || CPU_HW=$(uname -m)
+
+# ---------- 内存 ----------
+eval $(awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} /MemFree/{f=$2} END{
+  printf "MT=%d MA=%d MF=%d", t+0, a+0, f+0}' /proc/meminfo 2>/dev/null)
+[ -n "$MT" ] || { MT=1; MA=0; MF=0; }
+MU=$((MT - MA))
+MP=$((MU * 100 / MT))
+MB() { awk -v k="$1" 'BEGIN{printf "%d", k/1024}'; }
+MT_MB=$(MB "$MT"); MU_MB=$(MB "$MU"); MA_MB=$(MB "$MA"); MF_MB=$(MB "$MF")
+
+# ---------- 温度 ----------
+TEMP=""
+for z in /sys/class/thermal/thermal_zone*/temp; do
+  [ -r "$z" ] || continue
+  v=$(cat "$z" 2>/dev/null)
+  case "$v" in ''|*[!0-9]*) continue ;; esac
+  [ "$v" -gt 1000 ] && TEMP=$((v / 1000)) || TEMP=$v
+  break
+done
+
+# ---------- 磁盘 ----------
+disk_json() {
+  mp="$1"
+  [ -d "$mp" ] || { printf 'null'; return; }
+  df -k "$mp" 2>/dev/null | awk -v m="$mp" 'NR==2{
+    tu=$2; uu=$3; au=$4; p=$5; gsub(/%/,"",p)
+    t = (tu>=1048576)? sprintf("%.1fG",tu/1048576) : sprintf("%.0fM",tu/1024)
+    u = (uu>=1048576)? sprintf("%.1fG",uu/1048576) : sprintf("%.0fM",uu/1024)
+    a = (au>=1048576)? sprintf("%.1fG",au/1048576) : sprintf("%.0fM",au/1024)
+    printf "{\"mount\":\"%s\",\"total\":\"%s\",\"used\":\"%s\",\"avail\":\"%s\",\"pct\":%d}", m, t, u, a, p+0
+  }'
+}
+
+# ---------- Docker 容器 ----------
+CT=/tmp/.ns_ct.$$
+ST=/tmp/.ns_st.$$
+: > "$CT"; : > "$ST"
+DOCKER_OK=0
+if docker info >/dev/null 2>&1; then DOCKER_OK=1; fi
+if [ "$DOCKER_OK" = "1" ]; then
+  docker ps -a --format '{{.Names}}|{{.Image}}|{{.Ports}}|{{.Status}}' 2>/dev/null > "$CT"
+  docker stats --no-stream --format '{{.Name}}	{{.MemUsage}}	{{.CPUPerc}}' 2>/dev/null > "$ST"
+fi
+DOCKER_ROOT=$(uci get dockerd.globals.data_root 2>/dev/null)
+
+containers_json() {
+  printf '['
+  first=1
+  while IFS="|" read name image ports status; do
+    [ -n "$name" ] || continue
+    st_up=0
+    case "$status" in Up*) st_up=1 ;; esac
+    case "$status" in
+      *"(healthy)"*)   hl="healthy" ;;
+      *"(unhealthy)"*) hl="unhealthy" ;;
+      *"(starting)"*)  hl="starting" ;;
+      *)               hl="none" ;;
+    esac
+    # 对外端口：取第一条 /tcp 映射的宿主机端口；如果为空且为已知应用则默认端口
+    hp=""
+    tp=$(printf '%s' "$ports" | tr ',' '
+' | grep '/tcp' | head -1)
+    if [ -n "$tp" ]; then
+      hp=$(printf '%s' "$tp" | grep -oE ':[0-9]+->' | head -1 | sed 's/[^0-9]//g')
+    fi
+    if [ -z "$hp" ]; then
+      case "$name" in
+        *homeassistant*) hp="8123" ;;
+      esac
+    fi
+    [ -n "$hp" ] || hp=""
+
+    mm=""; mc=""
+    row=$(grep "^$name$TAB" "$ST" 2>/dev/null | head -1)
+    if [ -n "$row" ]; then
+      raw=$(printf '%s' "$row" | awk -F'	' '{print $2}' | sed 's#/.*##; s/^ *//; s/ *$//')
+      case "$raw" in
+        *KiB*) mm=$(awk -v n="$(printf '%s' "$raw" | sed 's/[^0-9.]//g')" 'BEGIN{printf "%.0f", n/1024}') ;;
+        *MiB*) mm=$(printf '%s' "$raw" | sed 's/[^0-9.]//g') ;;
+        *GiB*) mm=$(awk -v n="$(printf '%s' "$raw" | sed 's/[^0-9.]//g')" 'BEGIN{printf "%.0f", n*1024}') ;;
+        *)     mm=$(printf '%s' "$raw" | sed 's/[^0-9.]//g') ;;
+      esac
+      mc=$(printf '%s' "$row" | awk -F'	' '{print $3}' | sed 's/[^0-9.]//g')
+    fi
+    [ -n "$mm" ] || mm="0"
+    [ -n "$mc" ] || mc="0"
+    mm=$(awk -v n="$mm" 'BEGIN{printf "%.0f", n+0}')
+    mc=$(awk -v n="$mc" 'BEGIN{printf "%.1f", n+0}')
+
+    [ $first -eq 1 ] || printf ','
+    first=0
+    printf '{"name":"%s","image":"%s","state":"%s","up":%s,"health":"%s","port":"%s","ports":"%s","mem_mb":%s,"cpu_pct":%s}' \
+      "$(jstr "$name")" "$(jstr "$image")" "$(jstr "$status")" "$st_up" "$hl" \
+      "$(jstr "$hp")" "$(jstr "$ports")" "$mm" "$mc"
+  done < "$CT"
+  printf ']'
+}
+
+# ---------- 代理链路 ----------
+px_xray=0; px_hy=0; px_frpc=0
+[ "$(has_proc 'xray run')" -gt 0 ] && px_xray=1
+[ "$(has_proc 'hysteria client')" -gt 0 ] && px_hy=1
+[ "$(has_proc 'frpc -c')" -gt 0 ] && px_frpc=1
+
+DEF_OUT=$(grep -E "^default[[:space:]]" /etc/n1-device-nodes.conf 2>/dev/null | awk '{print $2}')
+[ -n "$DEF_OUT" ] || DEF_OUT="-"
+CF_BEST=$(cat /etc/xray/cf-best.conf 2>/dev/null | tr '\n' ' ' | sed 's/ *$//')
+CF_IP=$(printf '%s' "$CF_BEST" | awk '{print $1}')
+CF_MS=$(printf '%s' "$CF_BEST" | awk '{gsub(/ms/,""); print $3}')
+CF_TS=$(printf '%s' "$CF_BEST" | awk '{print $4}')
+[ -n "$CF_IP" ] || CF_IP=""
+
+# 端口 10808 是否在监听（代理入口）
+PX_PORT=10808
+PX_LISTEN=0
+netstat -tln 2>/dev/null | grep -qE "[^0-9]${PX_PORT}[[:space:]]" && PX_LISTEN=1
+
+# ---------- 网络 ----------
+LAN_IP=$(ip -4 addr show br-lan 2>/dev/null | awk '/inet /{split($2,a,"/"); print a[1]; exit}')
+[ -n "$LAN_IP" ] || LAN_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+WAN_OK=0
+ping -c1 -W1 223.5.5.5 >/dev/null 2>&1 && WAN_OK=1
+LAN_ONLINE=$(ip neigh show dev br-lan 2>/dev/null | grep -vc FAILED)
+[ -n "$LAN_ONLINE" ] || LAN_ONLINE=0
+
+FW_VER=$(cat /etc/istoreos-release 2>/dev/null | head -1)
+[ -n "$FW_VER" ] || FW_VER=$(cat /etc/openwrt_release 2>/dev/null | grep DISTRIB_DESCRIPTION | cut -d= -f2 | tr -d "'")
+
+# ---------- frp 端口映射（局域网端口 -> 公网端口） ----------
+# 解析 frpc.toml，让前端在公网模式下自动改用公网端口直达应用
+FRPC_CFG=/etc/frp/frpc.toml
+[ -f "$FRPC_CFG" ] || FRPC_CFG=/etc/frp/frpc.ini
+pub_json() {
+  [ -f "$FRPC_CFG" ] || { printf ''; return; }
+  awk '
+  /^[[:space:]]*\[\[proxies\]\]/{ lp=""; rp=""; next }
+  /^[[:space:]]*localPort/{ gsub(/[^0-9]/,"",$0); lp=$0; next }
+  /^[[:space:]]*remotePort/{ gsub(/[^0-9]/,"",$0); rp=$0
+    if (lp!="" && rp!="") { printf "%s\"%s\":\"%s\"", (n++?",":""), lp, rp; lp=""; rp="" }
+    next }
+  ' "$FRPC_CFG" 2>/dev/null
+}
+
+# ---------- 输出 ----------
+printf 'Content-Type: application/json; charset=utf-8\n'
+printf 'Cache-Control: no-store\n'
+printf 'Access-Control-Allow-Origin: *\n'
+printf '\n'
+printf '{'
+printf '"ts":"%s",' "$(date '+%Y-%m-%d %H:%M:%S')"
+printf '"sys":{"uptime_s":%s,"uptime":"%s","load1":"%s","load5":"%s","load15":"%s","ncpu":%s,"cpu":"%s",' \
+  "$UP_S" "$UP_TXT" "$LOAD1" "$LOAD5" "$LOAD15" "$NCPU" "$(jstr "$CPU_HW")"
+printf '"mem_total_mb":%s,"mem_used_mb":%s,"mem_avail_mb":%s,"mem_free_mb":%s,"mem_pct":%s,' \
+  "$MT_MB" "$MU_MB" "$MA_MB" "$MF_MB" "$MP"
+printf '"temp_c":"%s","lan_ip":"%s","wan_ok":%s,"lan_online":%s,"fw":"%s"},' \
+  "$TEMP" "$(jstr "$LAN_IP")" "$WAN_OK" "$LAN_ONLINE" "$(jstr "$FW_VER")"
+printf '"disk":{"root":%s,"data":%s},' "$(disk_json /overlay)" "$(disk_json /mnt/sda1)"
+printf '"docker":{"ok":%s,"root":"%s","containers":%s},' \
+  "$DOCKER_OK" "$(jstr "$DOCKER_ROOT")" "$(containers_json)"
+printf '"proxy":{"xray":%s,"hysteria":%s,"frpc":%s,"listen":%s,"port":%s,"out":"%s","cf_ip":"%s","cf_ms":"%s","cf_ts":"%s"},' \
+  "$px_xray" "$px_hy" "$px_frpc" "$PX_LISTEN" "$PX_PORT" "$(jstr "$DEF_OUT")" \
+  "$(jstr "$CF_IP")" "$(jstr "$CF_MS")" "$(jstr "$CF_TS")"
+printf '"pub":{%s}' "$(pub_json)"
+printf '}\n'
+
+rm -f "$CT" "$ST"
+exit 0
