@@ -7,11 +7,11 @@ on:
       kernel:
         description: 'Amlogic Kernel Version'
         required: true
-        default: '6.1.120'
+        default: '6.1.y'
       board:
         description: 'Target Board'
         required: true
-        default: 'phicomm-n1'
+        default: 's905d'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt.git
@@ -92,10 +92,11 @@ jobs:
       if: steps.compile.outputs.status == 'success'
       uses: ophub/amlogic-s9xxx-openwrt@main
       with:
-        openwrt_path: openwrt/bin/targets/*/*
-        openwrt_board: ${{ github.event.inputs.board || 'phicomm-n1' }}
-        openwrt_kernel: ${{ github.event.inputs.kernel || '6.1.120' }}
+        openwrt_path: openwrt/bin/targets/*/*/*rootfs.tar.gz
+        openwrt_board: ${{ github.event.inputs.board || 's905d' }}
+        openwrt_kernel: ${{ github.event.inputs.kernel || '6.1.y' }}
         auto_kernel: false
+        openwrt_ip: 192.168.1.149
         kernel_repo: ophub/kernel
         output_name: N1-SmartHub-OS
 
