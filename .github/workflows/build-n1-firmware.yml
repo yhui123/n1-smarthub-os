@@ -5,11 +5,11 @@ on:
   workflow_dispatch:
     inputs:
       kernel:
-        description: 'Amlogic Kernel Version'
+        description: 'Amlogic Kernel Version (LTS 稳定推荐 6.1.y)'
         required: true
         default: '6.1.y'
       board:
-        description: 'Target Board'
+        description: 'Target Board (斐讯 N1 S905D)'
         required: true
         default: 's905d'
 
@@ -53,6 +53,14 @@ jobs:
       run: |
         git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
 
+    - name: Cache DL Packages
+      uses: actions/cache@v4
+      with:
+        path: openwrt/dl
+        key: ${{ runner.os }}-openwrt-dl-${{ hashFiles('config/n1-smarthub.config') }}
+        restore-keys: |
+          ${{ runner.os }}-openwrt-dl-
+
     - name: Load Custom Feeds & Scripts (Part 1)
       run: |
         [ -e $DIY_P1_SH ] && chmod +x $DIY_P1_SH && $DIY_P1_SH
@@ -67,9 +75,13 @@ jobs:
         cd openwrt
         make defconfig
         if [ -d "../files" ]; then
-          echo "Copying custom files into openwrt/files..."
+          echo "Injecting custom overlay into openwrt/files..."
           mkdir -p files
           cp -r ../files/* files/
+          chmod +x files/root/*.sh 2>/dev/null || true
+          chmod +x files/usr/bin/* 2>/dev/null || true
+          chmod +x files/www/cgi-bin/* 2>/dev/null || true
+          chmod +x files/etc/uci-defaults/* 2>/dev/null || true
         fi
 
     - name: Download DL Packages
@@ -100,6 +112,16 @@ jobs:
         kernel_repo: ophub/kernel
         output_name: N1-SmartHub-OS
 
+    - name: Generate Checksums & Release Metadata
+      id: meta
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd ${{ env.PACKAGED_OUTPUTPATH }}
+        sha256sum *.img.gz > sha256sums.txt 2>/dev/null || true
+        md5sum *.img.gz > md5sums.txt 2>/dev/null || true
+        echo "release_tag=v$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+        echo "release_date=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+
     - name: Upload Firmware to Artifacts
       uses: actions/upload-artifact@v4
       if: env.UPLOAD_FIRMWARE == 'true'
@@ -112,22 +134,25 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: env.UPLOAD_RELEASE == 'true'
       with:
-        tag_name: v1.0.0-N1-SmartHub
-        name: N1-SmartHub-OS 专属固件 (Kernel 6.1.y LTS)
+        tag_name: ${{ steps.meta.outputs.release_tag }}
+        name: N1-SmartHub-OS 专属固件 (${{ steps.meta.outputs.release_date }})
         body: |
-          ### 🚀 N1-SmartHub-OS 专属固件已完成编译与打包！
-          * **硬件目标**：斐讯 N1 (Amlogic S905D)
-          * **内核版本**：Linux 6.1.y LTS 长期支持稳定版
-          * **特性亮点**：
-            - ✅ 极简轻量化，待机内存占用仅 ~100MB
-            - ✅ 内置 Docker 容器与 Home Assistant 支持
-            - ✅ 内置 Hysteria 2 / Xray 透明代理与多线程 CF 优选自愈看门狗
-            - ✅ 开机即自带 N1 OS 掌上控制台 Web 门户
-            - ✅ 开机预置 SSH 密钥免密登录，默认 IP：`192.168.1.149`
+          ### 🚀 N1-SmartHub-OS 专属固件构建成功！
+          * **编译时间**：${{ steps.meta.outputs.release_date }}
+          * **硬件目标**：斐讯 N1 (Amlogic S905D 四核 A53)
+          * **底层内核**：Linux 6.1.y LTS 长期支持稳定版
+          * **系统亮点**：
+            - ✅ 纯净极简，系统自身待机仅占用 ~100MB 内存
+            - ✅ 原生预装 Docker CE 容器环境及管理面板
+            - ✅ 固化 Hysteria 2 / Xray / Sing-box / FRP 远程穿透
+            - ✅ 内置 Cloudflare 优质 Clean IP 多线程并发测速与自愈看门狗
+            - ✅ 开机直出现代化自研 N1 OS Web 控制台（支持手机端与电脑自适应）
+            - ✅ 默认 LAN IP: `192.168.1.149`，开机预置电脑 SSH 密钥免密登录
           * **刷机说明**：
-            1. 下载下方 `.img.gz` 文件并解压得到 `.img`
-            2. 使用 Rufus 将 `.img` 写入 U 盘 (≥4GB)
-            3. 将 U 盘插入 N1 靠近 HDMI 口的 USB，接通电源即可启动！
+            1. 下载下方 `.img.gz` 固件压缩包，解压得到 `.img` 镜像；
+            2. 使用 Rufus 或 balenaEtcher 写入普通 U 盘（≥4GB）；
+            3. 将 U 盘插入 N1 靠近 HDMI 口的 USB，接通电源即可启动测试；
+            4. 体验满意后，SSH 连接 `ssh root@192.168.1.149` 输入 `openwrt-install-to-emmc` 即可固化至内部闪存。
         files: ${{ env.PACKAGED_OUTPUTPATH }}/*
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
