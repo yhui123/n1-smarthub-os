@@ -124,7 +124,7 @@ jobs:
         openwrt_path: openwrt/bin/targets/*/*/*rootfs.tar.gz
         openwrt_board: ${{ github.event.inputs.board || 's905d' }}
         openwrt_kernel: ${{ github.event.inputs.kernel || '6.1.y' }}
-        auto_kernel: false
+        auto_kernel: true
         openwrt_ip: 192.168.1.149
         kernel_repo: ophub/kernel
         output_name: N1-SmartHub-OS
