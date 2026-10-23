@@ -27,13 +27,6 @@ localPort = 22
 remotePort = 20022
 
 [[proxies]]
-name = "n1-sentinel"
-type = "tcp"
-localIP = "127.0.0.1"
-localPort = 8888
-remotePort = 20889
-
-[[proxies]]
 name = "n1-homeassistant"
 type = "tcp"
 localIP = "127.0.0.1"
