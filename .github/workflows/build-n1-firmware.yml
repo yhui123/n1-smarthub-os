@@ -15,6 +15,14 @@ on:
         description: 'Target Board (斐讯 N1 S905D)'
         required: true
         default: 's905d'
+  push:
+    branches:
+      - main
+    paths:
+      - 'config/**'
+      - 'files/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
 
 env:
   REPO_URL: https://github.com/immortalwrt/immortalwrt.git
