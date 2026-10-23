@@ -1,5 +1,8 @@
 name: Build N1-SmartHub-OS (Kernel 6.1.y LTS)
 
+permissions:
+  contents: write
+
 on:
   repository_dispatch:
   workflow_dispatch:
