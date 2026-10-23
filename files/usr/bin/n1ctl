@@ -145,14 +145,27 @@ do_name() {
   valid_ip "$ip" || die "IP 格式不对: $ip"
   [ -f "$NAME_FILE" ] || : > "$NAME_FILE"
   tmp="${NAME_FILE}.tmp"
-  grep -v "^${ip}[[:space:]]" "$NAME_FILE" > "$tmp" 2>/dev/null
+
+  # 获取该 IP 当前对应的 MAC 地址（如果有）
+  mac=$(awk -v ip="$ip" '$1==ip && $4!="00:00:00:00:00:00" {print tolower($4); exit}' /proc/net/arp 2>/dev/null)
+
+  # 清理旧的 IP 映射与冲突的 MAC 映射
+  if [ -n "$mac" ]; then
+    grep -vE "^(${ip}|${mac})[[:space:]]" "$NAME_FILE" > "$tmp" 2>/dev/null
+  else
+    grep -v "^${ip}[[:space:]]" "$NAME_FILE" > "$tmp" 2>/dev/null
+  fi
   mv "$tmp" "$NAME_FILE"
+
   if [ -n "$nm" ]; then
     nm=$(printf '%s' "$nm" | tr -d '\r\n\t')
     printf '%s\t%s\n' "$ip" "$nm" >> "$NAME_FILE"
-    echo "已命名: $ip -> $nm"
+    if [ -n "$mac" ]; then
+      printf '%s\t%s\n' "$mac" "$nm" >> "$NAME_FILE"
+    fi
+    echo "已命名: $ip $([ -n "$mac" ] && echo "($mac)") -> $nm"
   else
-    echo "已清除命名: $ip"
+    echo "已清除命名: $ip $([ -n "$mac" ] && echo "($mac)")"
   fi
 }
 

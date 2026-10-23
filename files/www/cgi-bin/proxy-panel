@@ -11,12 +11,16 @@ name_of() {
   _ip="$1"
   _mac="$2"
   if [ -f "$NAME_FILE" ]; then
+    # 1. 优先查 IP 显式绑定（用户在面板对指定 IP 改名时具有最高优先级）
+    if [ -n "$_ip" ] && [ "$_ip" != "-" ]; then
+      n=$(awk -v ip="$_ip" '$1==ip {$1=""; sub(/^[ \t]+/,""); print; exit}' "$NAME_FILE" 2>/dev/null)
+      [ -n "$n" ] && { printf "%s" "$n"; return; }
+    fi
+    # 2. 次选查 MAC 物理地址绑定（跨 IP 自动漫游匹配）
     if [ -n "$_mac" ] && [ "$_mac" != "-" ]; then
       n=$(awk -v m="$_mac" 'tolower($1)==tolower(m) {$1=""; sub(/^[ \t]+/,""); print; exit}' "$NAME_FILE" 2>/dev/null)
       [ -n "$n" ] && { printf "%s" "$n"; return; }
     fi
-    n=$(awk -v ip="$_ip" '$1==ip {$1=""; sub(/^[ \t]+/,""); print; exit}' "$NAME_FILE" 2>/dev/null)
-    [ -n "$n" ] && { printf "%s" "$n"; return; }
   fi
   printf "未知设备"
 }
@@ -27,15 +31,17 @@ jstr() {
 
 guess_type() {
   _ip="$1"
+  _nm="$2"
+  case "$_nm" in
+    *路由*|*网关*) printf "网关路由"; return ;;
+    *打印机*) printf "打印机"; return ;;
+    *手机*|*iPhone*|*iPad*|*小米15*|*荣耀*) printf "手机"; return ;;
+    *台式*|*开机卡*|*PC*|*工作站*|*电脑*) printf "电脑"; return ;;
+    *插座*|*家居*|*开关*|*米家*|*IoT*) printf "智能家居"; return ;;
+  esac
   case "$_ip" in
-    192.168.1.1) printf "网关路由"; return ;;
-    192.168.1.184) printf "电信网关"; return ;;
-    192.168.1.13) printf "打印机"; return ;;
-    192.168.1.59) printf "电脑·台式"; return ;;
+    192.168.1.1|192.168.1.184) printf "网关路由"; return ;;
     192.168.1.149) printf "旁路由"; return ;;
-    192.168.1.143|192.168.1.153|192.168.1.49) printf "智能家居"; return ;;
-    192.168.1.111|192.168.1.70) printf "手机"; return ;;
-    192.168.1.150|192.168.1.199|192.168.1.231) printf "电脑"; return ;;
   esac
   printf ""
 }
@@ -118,7 +124,7 @@ devices_json() {
     mc=$(awk -v ip="$ip" '$1==ip && $4!="00:00:00:00:00:00" {print $4; exit}' /proc/net/arp 2>/dev/null)
     [ -n "$mc" ] || mc="-"
     nm=$(name_of "$ip" "$mc")
-    gt=$(guess_type "$ip" "$mc")
+    gt=$(guess_type "$ip" "$nm")
 
     [ $first -eq 1 ] || printf ','
     first=0
@@ -225,7 +231,7 @@ lan_json() {
     [ "$c" -gt 0 ] && inproxy=1
 
     nm=$(name_of "$ip" "$mac")
-    gt=$(guess_type "$ip" "$mac")
+    gt=$(guess_type "$ip" "$nm")
     vd=$(oui_vendor "$mac")
 
     [ $first -eq 1 ] || printf ','
